@@ -1,0 +1,4 @@
+{
+  "title": "Database & Tenancy",
+  "pages": ["db-visualization", "query-optimization", "synthetic-data-generator"]
+}

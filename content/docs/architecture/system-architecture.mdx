@@ -1,0 +1,112 @@
+---
+title: "System Architecture Blueprint"
+description: "High-level component topology, Sysbox container orchestration, AI Proxy egress firewalls, and asynchronous queue workers."
+---
+
+<RoleBadge roles={["sde", "ai", "qa", "mgmt"]} />
+
+# System Architecture Blueprint
+
+HelloSmart is designed for **deterministic multi-tenancy, rapid workspace provisioning (under 15 seconds), and strict AI egress isolation**.
+
+---
+
+## 1. High-Level Component Topology
+
+```mermaid
+flowchart TB
+    subgraph ClientLayer["Edge & Client Applications"]
+        Browser["Candidate & Company Browser (Next.js 15 App Router)"]
+        Landing["Marketing & Booking (cal.com Embed)"]
+    end
+
+    subgraph IngressGateway["Ingress & Edge Routing"]
+        Cloudflare["Cloudflare CDN & DDoS Protection"]
+        ALB["AWS Application Load Balancer"]
+    end
+
+    subgraph ComputeServices["Core Services Cluster (AWS ECS Fargate / EC2)"]
+        API["@hs/api (NestJS Fastify Modular Monolith)"]
+        WSGateway["@hs/ws-gateway (Terminal PTY & Telemetry Streamer)"]
+        Worker["@hs/worker (BullMQ Background Jobs & Auto-Submit)"]
+        Reviewer["@hs/reviewer (Multi-Agent Evaluation Engine)"]
+    end
+
+    subgraph WorkspaceHost["Sysbox Workspace Sandbox Nodes (EC2 Bare Metal / Ubuntu)"]
+        WarmPool["Pre-warmed Container Pool (sysbox-runc)"]
+        ActiveWS["Active Candidate Workspace (Docker-in-Docker)"]
+        EgressProxy["Egress Network Firewall (Allowed Domains Only)"]
+    end
+
+    subgraph AIProxyTier["AI Proxy Gateway"]
+        AIProxy["@hs/ai-proxy (Token Quotas, Model Allowlist, Logging)"]
+        Vault["AWS Secrets Manager / KMS (Tenant & Platform Keys)"]
+    end
+
+    subgraph DataStorage["State & Storage Tier"]
+        Postgres[("PostgreSQL 16 + citext + pgcrypto\n(Row-Level Security Enabled)")]
+        PgBouncer["PgBouncer transaction pool :6432"]
+        RedisCluster[("Redis 7 (Session Store & BullMQ Queues)")]
+        S3Storage[("AWS S3 (Snapshots, Terminal Logs, Audio/Video)")]
+    end
+
+    Browser --> Cloudflare --> ALB
+    Landing --> Cloudflare
+    ALB --> API
+    ALB --> WSGateway
+
+    API --> PgBouncer --> Postgres
+    API --> RedisCluster
+    API --> Worker
+    
+    API -->|Provision / Snapshot| WarmPool
+    WarmPool --> ActiveWS
+    ActiveWS -->|Terminal & Events| WSGateway
+    WSGateway --> S3Storage
+
+    ActiveWS -->|Short-lived Token Only| EgressProxy
+    EgressProxy --> AIProxy
+    AIProxy --> Vault
+    AIProxy -->|Metered & Filtered| ExternalLLM["External LLM Providers (OpenAI, Anthropic)"]
+
+    Worker --> Reviewer
+    Worker --> PgBouncer
+    Reviewer --> S3Storage
+    Reviewer --> Postgres
+```
+
+---
+
+## 2. Key Subsystem Responsibilities
+
+### Core Monolith (`apps/api`)
+Handles authentication, multi-tenant RBAC, assessment configuration, rubric management, candidate invites, and commercial payment webhooks. Sets PostgreSQL context per transaction (`set_config('app.org_id')`) to enforce database RLS.
+
+### Sysbox Workspace Orchestrator & HelloSmart Fabric (RMS)
+HelloSmart Fabric serves as the unified Resource Management System across both candidate assessment workspaces and virtual assistant machines (ADR-0009). Maintains pre-warmed Linux containers running `sysbox-runc` behind the `IWorkspaceProvider` driver interface. When a session starts:
+1. Reserves a pre-warmed slot from the warm pool in under 3 seconds (or clones a task snapshot).
+2. Attaches the pinned template repository commit, seed files, and pre-baked tool packs (`core-dev`, `api-tools`, `container`, `db-tools`).
+3. Injects environment secrets from Vault and a short-lived workspace session token (never real provider keys).
+4. Launches OpenVSCode Server (web IDE) and starts the in-VM flight recorder daemon (`services/ws-agent`) capturing file edits, git snapshots, and semantic terminal commands.
+5. Applies egress firewall rules dropping all outbound traffic except the internal AI proxy gateway and package mirrors.
+
+### AI Proxy (`services/ai-proxy`)
+Acts as the single gatekeeper between candidate workspaces and external AI providers (BR-13):
+- **Egress Firewall**: Blocks network calls to unknown endpoints and blocks AI provider domains when AI is configured OFF (BR-14).
+- **Token Quota Enforcer**: Enforces per-candidate and per-assessment token/dollar limits (BR-15).
+- **Audit Logging**: Saves complete prompt and completion transcripts to S3 and Postgres for reviewer agents to evaluate.
+
+### Background Job Workers (`apps/worker`)
+Same image as `@hs/api`, command `node dist/worker.js`. BullMQ on Redis (`hs:{env}:ops`). Product jobs (auto-submit, cleanup, retention) are not registered yet; a repeating ping job plus `/api/v1/health/ready` keep the process observable.
+
+### Connection pooling and HTTP scale
+- **PgBouncer** (`transaction` mode, `max_prepared_statements = 200`) sits in front of Postgres. App and worker use port 6432. Migrations use Postgres 5432.
+- Client `PG_POOL_MAX` defaults to 5. PgBouncer `default_pool_size` is 20.
+- **Caddy** load-balances API replicas (`least_conn`) and health-checks `/api/v1/health/ready`.
+- Redis is a direct client (sessions, throttles, BullMQ). No Redis proxy.
+
+### Observability
+Pino JSON on stdout, OTLP to the Compose collector, Loki (7 days), Tempo, Prometheus Blackbox, Grafana, Dozzle for live tail. See [Observability kit](/docs/operations/observability).
+
+### Target AWS Infrastructure
+For the full target multi-AZ AWS VPC layout, Dev/QA/Prod parity specs, PrivateLink routing, and Blue/Green ECS deployment topology, see [AWS Production Migration & Architecture](/docs/architecture/aws-migration).

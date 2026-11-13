@@ -1,0 +1,225 @@
+---
+title: 'Synthetic Data Generator CLI'
+description: 'High-volume multi-tenant synthetic data generator CLI with deterministic Zipfian skew, streaming unnest loading, and safety refusal engine.'
+---
+
+<RoleBadge roles={['sde', 'qa', 'infra']} />
+
+# High-Volume Multi-Tenant Synthetic Data Generator CLI
+
+## 1. Executive Summary & Purpose
+
+The **HelloSmart Synthetic Data Generator CLI** (`scripts/db/generate-synthetic-data.mjs`) is a high-throughput, deterministic benchmarking utility designed to populate isolated PostgreSQL scratch databases with realistic, multi-tenant workloads of up to **1,000,000+ rows** in under 90 seconds.
+
+It models the realistic power-law tenancy distribution typical of enterprise SaaS hiring platforms: a small percentage of large enterprise tenants account for the vast majority of candidates, workspace sessions, and activity events, while dozens of smaller tenants generate light traffic.
+
+### Core Guarantees
+
+- **Write Safety Refusal Engine**: Enforces strict database name (`^hellosmart_perf_[a-z0-9_]+$`) and localhost-only network constraints. Rejects any attempt to target development (`hellosmart`), test (`hellosmart_test`), or remote production databases.
+- **Zero Constraint / Trigger Disabling**: Runs entirely under full PostgreSQL relational integrity. Never toggles `session_replication_role`, never disables triggers or foreign keys, and never attempts to write to append-only `audit.events`.
+- **Mathematical Determinism**: Powered by a 32-bit Mulberry32 PRNG and a numerical bisection solver for generalized Zipf-Mandelbrot distributions. The same seed produces identical UUIDs, tenant allocations, and row counts across runs.
+- **High-Throughput Streaming Unnest Loading**: Uses multi-row `INSERT ... SELECT * FROM unnest(...)` batch loading (chunk size 5,000), achieving **11,500 – 12,400 rows/second** while avoiding PostgreSQL's 65,535 query parameter ceiling.
+- **Safe Synthetic PII & Fake Hashes**: Generates mock names and emails (`@<org-slug>.example.test`), fixed loopback IPs (`127.0.0.1`), and an unhashable synthetic Argon2id password hash (`$argon2id$v=19$m=65536,t=3,p=4$c3ludGhldGljc2FsdDAwMDA$c3ludGhldGljZGF0YWdlbmVyYXRvcnBhc3N3b3JkaGFzaA`) preventing password login or PII leakage.
+
+---
+
+## 2. Mathematical Formulation & Tenancy Skew
+
+### 2.1 Generalized Zipf-Mandelbrot Distribution
+
+Candidate counts across tenants are distributed according to the Zipf-Mandelbrot law:
+
+```text
+w_k = 1 / (k + q)^s
+```
+
+where:
+
+- `k` in `[1 .. N]` is the tenant rank (rank 1 is the largest tenant).
+- `s` is the power-law exponent controlling skewness.
+- `q >= 0` is the Mandelbrot shift parameter (default `q = 0`).
+- Normalized probability `p_k = w_k / Σ(j = 1..N) w_j`.
+
+### 2.2 Bisection Numerical Solver for Exponent Calibration
+
+Rather than hardcoding an arbitrary exponent `s`, the CLI provides an automated numerical bisection solver (`calibrateZipfExponent`). Given `N` tenants, a target cumulative share (default 80% / 0.80), and a top percentile (default 5%, yielding `K = ceil(0.05 * N)` top tenants), the solver finds `s` such that:
+
+```text
+Σ(k = 1..K) p_k(s) ≈ targetShare ± 1e-7
+```
+
+For `N = 50` tenants and `K = 3` (top ~5%), the solver computes `s ≈ 1.8640`. This results in:
+
+- Rank 1 (Mega Tenant): ~56.9% of all candidates.
+- Top 3 (Top 5% Tenants): ~79.9% of all candidates.
+- Rank 50 (Smallest Tenant): ~0.04% of candidates (subject to `--min-candidates=5`).
+- Rank-Size log-log linear regression slope: `-1.864` (`R² ≈ 1.000`).
+
+### 2.3 Largest-Remainder Integer Apportionment (Hare-Niemeyer)
+
+To prevent row loss from integer rounding while strictly adhering to total row budgets, the tool uses the Hare-Niemeyer method (`apportionRows`).
+
+1. Allocates baseline integer rows: `floor(p_k * adjustableRows) + minPerTenant`.
+2. Computes the remainder deficit: `Δ = totalRows - Σ allocated`.
+3. Sorts tenants descending by fractional remainder `p_k * adjustableRows - floor(p_k * adjustableRows)`.
+4. Distributes one row to each of the top `Δ` tenants.
+
+This guarantees that `Σ(k = 1..N) rows_k = totalRows` exactly.
+
+### 2.4 Tier Preset (`--preset=tiers`)
+
+The ticket's canonical enterprise tier structure is available via `--preset=tiers`:
+
+- **1 Enterprise / Mega Tenant**: 50,000 candidates (~45.5%).
+- **5 Large Growth Tenants**: 10,000 candidates each (50,000 candidates, ~45.5%).
+- **44 Small SMB Tenants**: ~227 candidates each (10,000 candidates, ~9.1%).
+- **Total Candidate Workflows**: 110,000 candidates (330,000 rows across users, assignments, workspaces).
+
+_Budget Conflict Reconciliation_: If the requested `--rows` budget is less than 330,203 rows, the tool emits an explicit warning and scales the tier allocations proportionally while maintaining exact integer totals.
+
+---
+
+## 3. Database Write Safety Refusal Engine
+
+The tool refuses to execute if any safety assertion fails **before** any database connection pool is created:
+
+```javascript
+// helpers/db-safety.mjs
+export const DB_NAME_REGEX = /^hellosmart_perf_[a-z0-9_]+$/;
+
+export function assertSafety(dbName, host = DEFAULT_HOST) {
+  if (!DB_NAME_REGEX.test(dbName)) {
+    throw new Error(
+      `SAFETY REFUSAL: Target database "${dbName}" does not match required pattern "^hellosmart_perf_[a-z0-9_]+$".`,
+    );
+  }
+  const isLocal = ['localhost', '127.0.0.1', '::1'].includes(host);
+  if (!isLocal) {
+    throw new Error(
+      `SAFETY REFUSAL: Host "${host}" is not local (localhost/127.0.0.1/::1). Remote hosts are strictly refused.`,
+    );
+  }
+}
+```
+
+### Safety Rules Summary
+
+1. **Database Name Pattern**: Must strictly match `^hellosmart_perf_[a-z0-9_]+$`.
+   - Accepted: `hellosmart_perf_main`, `hellosmart_perf_test`, `hellosmart_perf_bench_1`.
+   - Rejected: `hellosmart` (dev), `hellosmart_test` (unit tests), `postgres`, `template0`, `hellosmart_perf` (bare prefix forbidden).
+2. **Local Host Only**: Host must resolve to `localhost`, `127.0.0.1`, or `::1`.
+3. **No Migration / Schema Drift**: Target databases are provisioned exclusively by running the standard migration files (`packages/contracts/db/migrations/0001_...` through `0022_...`).
+4. **Append-Only Audit Protection**: The tool never inserts, updates, or deletes rows in `audit.events`. A post-generation verification step asserts that `audit.events` row count remains exactly 0.
+
+---
+
+## 4. Bulk Loading Architecture & Optimizations
+
+### 4.1 Multi-Row Unnest Loading Pattern
+
+Standard SQL `INSERT INTO ... VALUES (...)` hits the PostgreSQL 65,535 parameter ceiling at ~4,000 rows when inserting 16-column records. The generator uses typed PostgreSQL arrays:
+
+```sql
+INSERT INTO app.candidates (
+  user_id, org_id, name, email, status, counted_against_cap_at, created_at, deleted_at
+)
+SELECT * FROM unnest(
+  $1::uuid[], $2::uuid[], $3::text[], $4::text[],
+  $5::app.candidate_status[], $6::timestamptz[], $7::timestamptz[], $8::timestamptz[]
+);
+```
+
+- Only 8 parameters per batch regardless of batch size.
+- Standard chunk size of 5,000 rows achieves peak memory efficiency (~15 MB process footprint).
+
+### 4.2 Secondary Index Deferral (`--defer-indexes`)
+
+Target tables maintain 22 secondary composite indexes created in migration `0022_performance_composite_indexes.sql`. Maintaining B-tree indexes during 500k–1M row insertions causes significant write amplification and random I/O.
+
+When `--defer-indexes` is enabled:
+
+1. Queries `pg_index` and `pg_class` for non-primary, non-unique secondary indexes on `app.users`, `app.candidates`, `app.assignments`, `app.workspaces`, and `app.activity_events`.
+2. Records exact index definitions via `pg_get_indexdef(indexrelid)`.
+3. Drops all 22 secondary indexes (`DROP INDEX IF EXISTS app."<idx>"`).
+4. Streams metadata, candidate workflows, and activity events at peak unnest speed.
+5. Recreates all 22 indexes in parallel/sequence via `CREATE INDEX`.
+6. Queries `pg_index.indisvalid` to assert all 22 restored indexes are valid and functional.
+
+**Measured Speedup**:
+
+- 100k rows: 9.45s reduced to 8.25s (~15% speedup).
+- Secondary index restoration takes only **1.53s** (500k rows) and **3.25s** (1,000,000 rows).
+
+---
+
+## 5. Measured Performance Benchmarks
+
+All benchmarks were measured on a local developer workstation running PostgreSQL 16.15 in Docker (`shared_buffers = 128MB`, `work_mem = 4MB`, `synchronous_commit = on`, NVMe SSD):
+
+| Dataset Size          | Concurrency | Chunk Size | Secondary Indexes | Elapsed Time |  Throughput   |      Dominant Phase       | "500k < 30s" |      "100k-1M < 60s"       |
+| :-------------------- | :---------: | :--------: | :---------------: | :----------: | :-----------: | :-----------------------: | :----------: | :------------------------: |
+| **100k Rows**         |      1      |   5,000    |    Maintained     |  **9.45s**   | 10,585 rows/s | Candidates (4.57s, 48.3%) |     n/a      |   **MET** (9.45s < 60s)    |
+| **100k Rows**         |      2      |   5,000    |    Maintained     |  **9.78s**   | 10,226 rows/s |   Events (4.76s, 48.7%)   |     n/a      |   **MET** (9.78s < 60s)    |
+| **100k Rows**         |      1      |   5,000    |   **Deferred**    |  **8.25s**   | 12,122 rows/s |   Events (3.69s, 44.7%)   |     n/a      |   **MET** (8.25s < 60s)    |
+| **500k Rows (Run 1)** |      1      |   5,000    |   **Deferred**    |  **45.45s**  | 11,001 rows/s |  Events (23.41s, 51.5%)   | **NOT MET**  |   **MET** (45.45s < 60s)   |
+| **500k Rows (Run 2)** |      1      |   5,000    |   **Deferred**    |  **45.61s**  | 10,962 rows/s |  Events (22.82s, 50.0%)   | **NOT MET**  |   **MET** (45.61s < 60s)   |
+| **500k Rows (Run 3)** |      1      |   5,000    |   **Deferred**    |  **40.35s**  | 12,390 rows/s |  Events (19.49s, 48.3%)   | **NOT MET**  |   **MET** (40.35s < 60s)   |
+| **500k Rows (Avg)**   |      1      |   5,000    |   **Deferred**    |  **43.80s**  | 11,451 rows/s |      Events (50.0%)       | **NOT MET**  |   **MET** (43.80s < 60s)   |
+| **1,000,000 Rows**    |      1      |   5,000    |   **Deferred**    |  **84.61s**  | 11,819 rows/s |  Events (45.86s, 54.2%)   |     n/a      | **NOT MET** (84.61s > 60s) |
+
+### Performance Observations
+
+1. **Dominant Phase**: In all runs ≥ 100k rows, bulk insertion of `activity_events` is the dominant phase (48%–54% of total time), followed closely by the candidate workflow insertion (`users`, `candidates`, `assignments`, `workspaces`, accounting for 40%–45% of time).
+2. **Restoration Overhead**: Restoring 22 composite indexes across 1M rows took only **3.25s** (3.8% of total run time), demonstrating the net win of index deferral.
+3. **Database Constraints**: Foreign keys and check constraints remain 100% active. The single-container throughput ceiling of ~12,400 rows/s is dominated by WAL logging and foreign key lookup validation across PostgreSQL's shared buffer pool.
+
+---
+
+## 6. CLI Usage & Options Reference
+
+### Command Syntax
+
+```bash
+node scripts/db/generate-synthetic-data.mjs [options]
+```
+
+### Options
+
+| Option              | Default                | Description                                                                             |
+| :------------------ | :--------------------- | :-------------------------------------------------------------------------------------- |
+| `--database=<name>` | `hellosmart_perf_main` | Target scratch database name (must match `^hellosmart_perf_[a-z0-9_]+$`).               |
+| `--host=<host>`     | `127.0.0.1`            | Target database host (must be `localhost`, `127.0.0.1`, or `::1`).                      |
+| `--port=<port>`     | `5432`                 | PostgreSQL port.                                                                        |
+| `--rows=<N>`        | `500000`               | Total rows to generate across all tables.                                               |
+| `--tenants=<N>`     | `50`                   | Number of distinct tenant organizations.                                                |
+| `--preset=<type>`   | `zipf`                 | Tenancy model: `zipf` (calibrated Zipf-Mandelbrot) or `tiers` (enterprise tier preset). |
+| `--top-share=<pct>` | `0.80`                 | Target cumulative share for top 5% of tenants under Zipf model (e.g. `0.8` = 80%).      |
+| `--seed=<N>`        | `42`                   | Seed integer for Mulberry32 PRNG.                                                       |
+| `--chunk=<N>`       | `5000`                 | Batch size for multi-row unnest streaming queries.                                      |
+| `--defer-indexes`   | `false`                | Opt-in flag to drop and restore secondary indexes for bulk speedup.                     |
+| `--no-events`       | `false`                | Distribute row budget strictly across metadata and candidates (no activity events).     |
+| `--create`          | `false`                | Create the scratch database and run migrations 0001–0022 before generating.             |
+| `--drop`            | `false`                | Drop the scratch database after benchmark completes.                                    |
+| `--dry-run`         | `false`                | Print table row breakdown and skew metrics without writing to database.                 |
+| `--yes`             | `false`                | Non-interactive mode (skips interactive confirmation prompts).                          |
+
+### Example Invocations
+
+```bash
+# 1. Dry-run inspection of 500k row allocation
+node scripts/db/generate-synthetic-data.mjs --rows=500000 --dry-run
+
+# 2. Benchmark 500k rows on a fresh scratch database with deferred indexes
+node scripts/db/generate-synthetic-data.mjs \
+  --database=hellosmart_perf_bench \
+  --rows=500000 \
+  --create \
+  --defer-indexes \
+  --yes
+
+# 3. Clean up scratch database after drill
+node scripts/db/generate-synthetic-data.mjs \
+  --database=hellosmart_perf_bench \
+  --drop \
+  --yes
+```

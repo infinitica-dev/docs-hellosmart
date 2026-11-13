@@ -1,0 +1,472 @@
+---
+title: AWS Production Migration & Architecture
+description: End-to-end AWS reference architecture across Dev, QA, and Production VPCs, Fabric RMS sandboxes (Sysbox + gVisor), PrivateLink routing, and Blue/Green deployments.
+---
+
+<RoleBadge roles={["sde", "ai", "qa", "mgmt"]} />
+
+This blueprint documents the target **one-time AWS infrastructure provisioning** for HelloSmart.ai across **Dev**, **QA**, and **Production** environments. Every diagram below includes both a high-resolution static export (**PNG** and vector **SVG** download links for external decks and DevOps kickoff reviews) and an interactive zoomable **Mermaid** view.
+
+<Callout type="info" title="Architecture Artifacts in Repo">
+Raw high-DPI `.png` and `.svg` source exports are also version-controlled inside `docs/architecture/aws-migration/` for offline sharing alongside this portal.
+</Callout>
+
+---
+
+## 1. End-to-End AWS Architecture Overview
+
+The complete system view connects DNS/Edge (**Route 53**, **WAF v2**, **CloudFront + ACM**), CI/CD (**GitHub Actions**, **Amazon ECR**, **AWS CodeDeploy**), isolated **Dev** (`10.1.0.0/16`), **QA** (`10.2.0.0/16`), and **Production Multi-AZ** (`10.0.0.0/16`) VPCs, **HelloSmart Fabric RMS** dual-runtime sandboxes (`Sysbox` + `gVisor`), **PrivateLink** internal AWS service endpoints, **Amazon S3**, **Secrets Manager + KMS**, and centralized observability (**CloudWatch**, **GuardDuty**, **CloudTrail**).
+
+<Tabs items={['High-Res Diagram (PNG)', 'Interactive Mermaid']}>
+  <Tab value="High-Res Diagram (PNG)">
+    <div className="my-4 rounded-xl border bg-white p-3 shadow-xs">
+      <img
+        src="/diagrams/aws-migration/00-complete-aws-architecture.png"
+        alt="HelloSmart.ai Complete AWS Architecture"
+        className="h-auto w-full rounded"
+      />
+    </div>
+    <p className="text-sm text-muted-foreground">
+      Downloads:{' '}
+      <a href="/diagrams/aws-migration/00-complete-aws-architecture.png" download className="font-medium underline">
+        Download PNG (4026x1760)
+      </a>{' '}
+      |{' '}
+      <a href="/diagrams/aws-migration/00-complete-aws-architecture.svg" download className="font-medium underline">
+        Download Vector SVG
+      </a>
+    </p>
+  </Tab>
+  <Tab value="Interactive Mermaid">
+```mermaid
+flowchart LR
+    classDef edge fill:#eff6ff,stroke:#1d4ed8,stroke-width:1.5px,color:#0f172a
+    classDef svc fill:#ffffff,stroke:#334155,stroke-width:1.5px,color:#0f172a
+    classDef db fill:#f0fdf4,stroke:#15803d,stroke-width:1.5px,color:#0f172a
+    classDef sec fill:#fef2f2,stroke:#b91c1c,stroke-width:1.5px,color:#0f172a
+    classDef cicd fill:#faf5ff,stroke:#7e22ce,stroke-width:1.5px,color:#0f172a
+    classDef sandbox fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#0f172a
+
+    subgraph CLIENTS_CICD["Clients & Delivery Pipeline"]
+        direction TB
+        USERS["End Users & Clients\nCandidates | Company Admins\nPlatform Admins"]:::edge
+        subgraph CICD["CI/CD & Artifact Pipeline"]
+            direction TB
+            GH["GitHub Actions\nLint, Typecheck, Tests, Docs Sync"]:::cicd
+            ECR["Amazon ECR\nWeb, API, Proxy, Golden Images"]:::cicd
+            CD["AWS CodeDeploy\nBlue/Green ECS Controller"]:::cicd
+            GH --> ECR --> CD
+        end
+    end
+
+    subgraph EDGE["AWS Global Edge & Security"]
+        direction TB
+        R53["Amazon Route 53 DNS\napp | qa | dev | custom domains"]:::edge
+        WAF["AWS WAF v2\nDDoS, Rate Limit, OWASP Rules"]:::edge
+        CF["Amazon CloudFront + ACM\nCDN Edge + TLS 1.3 Certs"]:::edge
+        R53 --> WAF --> CF
+    end
+
+    subgraph ENVS["Isolated AWS Environments"]
+        direction TB
+        subgraph NONPROD["Dev & QA Environments"]
+            direction LR
+            DEV_BOX["DEV VPC (10.1.0.0/16)\ndev.hellosmart.ai\nALB -> ECS (Single Task)\nEC2 t3.xlarge Sysbox\nRDS Single-AZ + Redis Micro"]:::svc
+            QA_BOX["QA / Staging VPC (10.2.0.0/16)\nqa.hellosmart.ai\nALB -> ECS (Multi-Task)\nEC2 m7i.xlarge + EKS gVisor\nRDS Multi-AZ (Masked Prod) + Redis"]:::svc
+        end
+
+        subgraph PROD["PRODUCTION VPC (10.0.0.0/16 - 3 Availability Zones)"]
+            direction LR
+            subgraph PUB["Public Subnets (3 AZs)"]
+                direction TB
+                ALB["Production ALB\n:443 Live | :8443 Test\nBlue & Green Target Groups"]:::edge
+                NAT["Multi-AZ NAT Gateways\n& Internet Gateway (IGW)"]:::edge
+            end
+
+            subgraph APP["Private App Subnets (ECS Fargate)"]
+                direction TB
+                WEB_BG["Web App (Next.js 15)\nBlue <-> Green Sets"]:::svc
+                API_BG["API Control Plane (NestJS)\nBlue <-> Green Sets"]:::svc
+                PROXY["AI Proxy Gateway (:4000)\n15m JWT, RPM & Caps"]:::svc
+                WORKERS["BullMQ Workers\nAutosave, Reaper, Retention"]:::svc
+            end
+
+            subgraph FAB["Private Sandbox Subnets (Fabric RMS)"]
+                direction TB
+                SYSBOX["EC2 m7i.2xlarge ASG\nSysbox (sysbox-runc)\nOpenVSCode + Nested Docker\nIMDSv2 Hop=1 (Blocked)"]:::sandbox
+                GVISOR["Amazon EKS Cluster\ngVisor Pods (runsc)\nReviewer Agent Evaluators"]:::sandbox
+            end
+
+            subgraph DATA["Private Isolated Data Subnets"]
+                direction TB
+                RDS["Amazon RDS PostgreSQL 16\nMulti-AZ Primary + Read Replica\nStrict RLS (org_id) + KMS"]:::db
+                REDIS["Amazon ElastiCache Redis 7\nMulti-AZ Cluster\nBullMQ, Streams, Rate Limits"]:::db
+            end
+        end
+    end
+
+    subgraph AWS_SHARED["AWS Managed Storage, Security & External APIs"]
+        direction TB
+        VPCE["PrivateLink VPC Endpoints\nS3 Gateway | KMS | Secrets | ECR"]:::sec
+        S3["Amazon S3 Buckets (KMS)\n• snapshots (30d Glacier)\n• submissions (180d Deep Archive)\n• seeds (Task Repos & SQL)\n• compliance (WORM Object Lock)"]:::db
+        SEC["AWS Secrets Manager & KMS\nLLM Provider Keys | HMAC Salts\nEd25519 Deletion Signing Keys"]:::sec
+        OBS["CloudWatch, GuardDuty, CloudTrail\nCentral Logs, Alarms & Audit"]:::sec
+        EXT["External Services & LLMs\nAnthropic | OpenAI\nRazorpay | Cal.com | SSO"]:::edge
+    end
+
+    USERS -->|HTTPS| R53
+    CF -->|Prod| ALB
+    CF -.->|QA| QA_BOX
+    CF -.->|Dev| DEV_BOX
+
+    ALB --> WEB_BG
+    ALB --> API_BG
+    WEB_BG --> API_BG
+
+    API_BG --> RDS
+    API_BG --> REDIS
+    API_BG --> WORKERS
+    API_BG -->|IWorkspaceProvider| SYSBOX
+    WORKERS -->|Schedule Graders| GVISOR
+    WORKERS --> RDS
+    WORKERS --> REDIS
+
+    SYSBOX -->|Session JWT| PROXY
+    PROXY -->|Egress Only| NAT --> EXT
+    API_BG -->|Webhooks / Billing| NAT
+
+    SYSBOX -.-> VPCE
+    APP -.-> VPCE
+    VPCE --> S3
+    VPCE --> SEC
+    VPCE --> OBS
+    DATA -.-> SEC
+
+    CD -->|Blue/Green Cutover| ALB
+    CD -->|Deploy Tasks| WEB_BG
+    CD -->|Deploy Tasks| API_BG
+    OBS -.->|5xx Alarm Rollback| CD
+```
+  </Tab>
+</Tabs>
+
+---
+
+## 2. Production Multi-AZ VPC & HelloSmart Fabric Topology
+
+The Production VPC (`10.0.0.0/16`) spans three Availability Zones (`us-east-1a`, `us-east-1b`, `us-east-1c` or equivalent primary region) and strictly separates internet-facing ALBs/NAT gateways from ECS Fargate application services, untrusted candidate sandbox hosts (`Sysbox` + `gVisor`), and zero-internet database subnets.
+
+<Tabs items={['High-Res Diagram (PNG)', 'Interactive Mermaid']}>
+  <Tab value="High-Res Diagram (PNG)">
+    <div className="my-4 rounded-xl border bg-white p-3 shadow-xs">
+      <img
+        src="/diagrams/aws-migration/01-master-aws-production-vpc.png"
+        alt="HelloSmart.ai Production Multi-AZ VPC & Fabric Topology"
+        className="h-auto w-full rounded"
+      />
+    </div>
+    <p className="text-sm text-muted-foreground">
+      Downloads:{' '}
+      <a href="/diagrams/aws-migration/01-master-aws-production-vpc.png" download className="font-medium underline">
+        Download PNG (3150x1147)
+      </a>{' '}
+      |{' '}
+      <a href="/diagrams/aws-migration/01-master-aws-production-vpc.svg" download className="font-medium underline">
+        Download Vector SVG
+      </a>
+    </p>
+  </Tab>
+  <Tab value="Interactive Mermaid">
+```mermaid
+flowchart LR
+    classDef edge fill:#eff6ff,stroke:#1d4ed8,stroke-width:1.5px,color:#0f172a
+    classDef svc fill:#ffffff,stroke:#334155,stroke-width:1.5px,color:#0f172a
+    classDef db fill:#f0fdf4,stroke:#15803d,stroke-width:1.5px,color:#0f172a
+    classDef sec fill:#fef2f2,stroke:#b91c1c,stroke-width:1.5px,color:#0f172a
+    classDef sandbox fill:#fff7ed,stroke:#c2410c,stroke-width:1.5px,color:#0f172a
+
+    subgraph EDGE["AWS Global Edge & Security"]
+        direction TB
+        R53["Route 53 DNS\napp.hellosmart.ai + Custom Domains"]:::edge
+        WAF["AWS WAF v2\nDDoS Shield, Auth Limits, OWASP"]:::edge
+        CF["CloudFront CDN + ACM\nTLS 1.3 + Edge Static Caching"]:::edge
+        R53 --> WAF --> CF
+    end
+
+    subgraph VPC["Production VPC (10.0.0.0/16 - Multi-AZ: AZ-A, AZ-B, AZ-C)"]
+        direction LR
+        subgraph PUB["Public Subnets"]
+            direction TB
+            ALB["Application Load Balancer\nCross-Zone, Blue/Green Target Groups"]:::edge
+            NAT["Multi-AZ NAT Gateways"]:::edge
+            IGW["Internet Gateway"]:::edge
+            NAT --> IGW
+        end
+
+        subgraph APP["Private Application Subnets (ECS Fargate)"]
+            direction TB
+            WEB["Web Portal\nNext.js 15 (:3000)"]:::svc
+            API["API Control Plane\nNestJS Monolith (:4000)"]:::svc
+            PROXY["AI Proxy Gateway\nFastAPI (:4000), RPM & Caps"]:::svc
+            WORKERS["BullMQ Background Workers\nAutosave, Bundler, Reaper, Retention"]:::svc
+        end
+
+        subgraph FAB["Private Sandbox Subnets (Fabric RMS)"]
+            direction TB
+            SYSBOX["EC2 m7i.2xlarge Auto-Scaling Pool\nSysbox Containers (sysbox-runc)\nOpenVSCode + Terminal + Nested Docker\nIMDSv2 Hop=1 (169.254.169.254 Blocked)"]:::sandbox
+            EKS["Amazon EKS Cluster\nKubernetes gVisor Pods (runsc)\nAutonomous Reviewer Agent Graders"]:::sandbox
+        end
+
+        subgraph DATA["Private Isolated Database Subnets"]
+            direction TB
+            RDS["Amazon RDS PostgreSQL 16\nMulti-AZ Primary + Read Replica\nStrict Tenant RLS (org_id) + KMS CMK"]:::db
+            REDIS["Amazon ElastiCache Redis 7\nMulti-AZ Cluster\nBullMQ Queues, Telemetry Stream, Rate Limits"]:::db
+        end
+
+        subgraph VPCE["PrivateLink VPC Endpoints"]
+            direction TB
+            LINK["S3 Gateway Endpoint\nKMS & Secrets Manager Endpoints\nECR & CloudWatch Endpoints"]:::sec
+        end
+    end
+
+    subgraph MANAGED["AWS Managed Storage, Security & External APIs"]
+        direction TB
+        S3["Amazon S3 Buckets (KMS)\n• snapshots (30d Glacier)\n• submissions (180d Deep Archive)\n• seeds (Starter Repos & SQL)\n• compliance (WORM Object Lock)"]:::db
+        KMS_SM["AWS KMS + Secrets Manager\nLLM Provider Keys & HMAC Master Salts"]:::sec
+        CW_SEC["CloudWatch + GuardDuty + CloudTrail\nCentralized Telemetry & Security Audit"]:::sec
+        EXT["External Services\nAnthropic | OpenAI\nRazorpay | Cal.com"]:::edge
+    end
+
+    CF --> ALB
+    ALB --> WEB
+    ALB --> API
+    WEB --> API
+    API --> RDS
+    API --> REDIS
+    API --> WORKERS
+    API -->|IWorkspaceProvider| SYSBOX
+    WORKERS -->|Schedule Evaluations| EKS
+    SYSBOX -->|15m Session JWT| PROXY
+    PROXY --> NAT
+    API --> NAT
+    IGW --> EXT
+    APP -.-> LINK
+    SYSBOX -.-> LINK
+    LINK --> S3
+    LINK --> KMS_SM
+    LINK --> CW_SEC
+    DATA -.-> KMS_SM
+```
+  </Tab>
+</Tabs>
+
+### Production VPC Network Tiering (`10.0.0.0/16`)
+
+| Subnet Tier | Route Table / Egress Policy | Hosted Workloads | Isolation Guarantees |
+|---|---|---|---|
+| **Public Subnets** (3 AZs) | Default route `0.0.0.0/0` via IGW | Multi-AZ ALB, Multi-AZ NAT Gateways | No application compute or candidate workloads allowed in public subnets. |
+| **Private Application Subnets** | Outbound only via NAT Gateway and PrivateLink | ECS Fargate (`apps/web`, `apps/api`, AI Proxy, BullMQ Workers) | Only reachable from ALB Security Group on service ports. |
+| **Private Sandbox Subnets** | Strictly blocked from Data Subnets; allowed to AI Proxy & S3 Endpoint only | EC2 `m7i.2xlarge` Sysbox ASG + EKS `gVisor` Worker Nodes | **IMDSv2 `HopLimit=1`** blocks inner containers from reading `169.254.169.254` host IAM credentials. |
+| **Private Isolated Data Subnets** | Local VPC routes only (`no IGW`, `no NAT` routes) | RDS PostgreSQL 16 Multi-AZ + ElastiCache Redis 7 | Accessible solely by Private App Subnets on ports `5432` and `6379`. |
+
+---
+
+## 3. Environment Promotion: Dev, QA, and Production
+
+GitHub branches map 1:1 to isolated VPCs (or sub-accounts under AWS Organizations), ensuring candidate evaluation sandboxes and schema migrations are battle-tested in QA before Blue/Green cutover in Production.
+
+<Tabs items={['High-Res Diagram (PNG)', 'Interactive Mermaid']}>
+  <Tab value="High-Res Diagram (PNG)">
+    <div className="my-4 rounded-xl border bg-white p-3 shadow-xs">
+      <img
+        src="/diagrams/aws-migration/02-dev-qa-prod-environments.png"
+        alt="HelloSmart.ai Dev, QA, and Production Environments"
+        className="h-auto w-full rounded"
+      />
+    </div>
+    <p className="text-sm text-muted-foreground">
+      Downloads:{' '}
+      <a href="/diagrams/aws-migration/02-dev-qa-prod-environments.png" download className="font-medium underline">
+        Download PNG (1636x1508)
+      </a>{' '}
+      |{' '}
+      <a href="/diagrams/aws-migration/02-dev-qa-prod-environments.svg" download className="font-medium underline">
+        Download Vector SVG
+      </a>
+    </p>
+  </Tab>
+  <Tab value="Interactive Mermaid">
+```mermaid
+flowchart LR
+    classDef branch fill:#faf5ff,stroke:#7e22ce,stroke-width:1.5px,color:#0f172a
+    classDef dev fill:#f0f9ff,stroke:#0369a1,stroke-width:1.5px,color:#0f172a
+    classDef qa fill:#fefce8,stroke:#a16207,stroke-width:1.5px,color:#0f172a
+    classDef prod fill:#f0fdf4,stroke:#15803d,stroke-width:1.5px,color:#0f172a
+
+    subgraph GIT["GitHub & Promotion Pipeline"]
+        direction TB
+        B_DEV["Branch: dev\nCI Unit Tests + Docs Sync"]:::branch
+        B_QA["Branch: qa\nPR Integration + E2E Playwright"]:::branch
+        B_MAIN["Branch: main\nProduction Release + Blue/Green"]:::branch
+        B_DEV -->|PR Merge| B_QA -->|PR Merge| B_MAIN
+    end
+
+    subgraph ENV_DEV["DEV Environment (10.1.0.0/16)"]
+        D_URL["dev.hellosmart.ai"]:::dev
+        D_ECS["ECS Fargate (Single Task)\nWeb + API + AI Proxy"]:::dev
+        D_VM["EC2 t3.xlarge (Sysbox Dev)"]:::dev
+        D_DB["RDS db.t4g.medium (Single AZ)\nElastiCache Micro"]:::dev
+        D_S3["S3 Dev Buckets"]:::dev
+        D_URL --> D_ECS --> D_VM
+        D_ECS --> D_DB
+        D_ECS --> D_S3
+    end
+
+    subgraph ENV_QA["QA / Staging Environment (10.2.0.0/16)"]
+        Q_URL["qa.hellosmart.ai"]:::qa
+        Q_ECS["ECS Fargate (Multi-Task)\nWeb + API + AI Proxy + Workers"]:::qa
+        Q_VM["EC2 m7i.xlarge Pool + EKS gVisor\nFull Sandbox E2E Parity"]:::qa
+        Q_DB["RDS Multi-AZ (Masked Prod Clones)\nElastiCache Cluster"]:::qa
+        Q_S3["S3 Staging Buckets"]:::qa
+        Q_URL --> Q_ECS --> Q_VM
+        Q_ECS --> Q_DB
+        Q_ECS --> Q_S3
+    end
+
+    subgraph ENV_PROD["PROD Environment (10.0.0.0/16 - 3 AZs)"]
+        P_URL["app.hellosmart.ai + Custom Domains\nRoute 53 + CloudFront + WAF"]:::prod
+        P_ECS["ECS Fargate Auto-Scale (Blue/Green)\nWeb + API + AI Proxy + Workers"]:::prod
+        P_VM["EC2 m7i.2xlarge ASG Warm Pool (Sysbox)\nEKS Cluster (gVisor Evaluators)"]:::prod
+        P_DB["RDS PostgreSQL 16 Multi-AZ + Replica\nElastiCache Multi-AZ Redis Cluster"]:::prod
+        P_S3["S3 Enterprise Buckets\nKMS + Glacier + WORM Object Lock"]:::prod
+        P_URL --> P_ECS --> P_VM
+        P_ECS --> P_DB
+        P_ECS --> P_S3
+    end
+
+    B_DEV -.->|Auto Deploy| ENV_DEV
+    B_QA -.->|Deploy + DB Migrations| ENV_QA
+    B_MAIN -.->|CodeDeploy Blue/Green| ENV_PROD
+```
+  </Tab>
+</Tabs>
+
+---
+
+## 4. Production Blue/Green Deployment & Circuit Breaker
+
+Zero-downtime releases for both **Web (`apps/web`)** and **API (`apps/api`)** run via **AWS CodeDeploy** on ECS Fargate, pairing expand-and-contract database migrations with isolated `:8443` smoke validation and CloudWatch alarm circuit breakers.
+
+<Tabs items={['High-Res Diagram (PNG)', 'Interactive Mermaid']}>
+  <Tab value="High-Res Diagram (PNG)">
+    <div className="my-4 rounded-xl border bg-white p-3 shadow-xs">
+      <img
+        src="/diagrams/aws-migration/03-blue-green-deployment.png"
+        alt="HelloSmart.ai Blue/Green Deployment & Automatic Rollback Flow"
+        className="h-auto w-full rounded"
+      />
+    </div>
+    <p className="text-sm text-muted-foreground">
+      Downloads:{' '}
+      <a href="/diagrams/aws-migration/03-blue-green-deployment.png" download className="font-medium underline">
+        Download PNG (2009x575)
+      </a>{' '}
+      |{' '}
+      <a href="/diagrams/aws-migration/03-blue-green-deployment.svg" download className="font-medium underline">
+        Download Vector SVG
+      </a>
+    </p>
+  </Tab>
+  <Tab value="Interactive Mermaid">
+```mermaid
+flowchart LR
+    classDef alb fill:#eff6ff,stroke:#1d4ed8,stroke-width:1.5px,color:#0f172a
+    classDef blue fill:#dbeafe,stroke:#1e40af,stroke-width:1.5px,color:#0f172a
+    classDef green fill:#dcfce7,stroke:#15803d,stroke-width:1.5px,color:#0f172a
+    classDef ctrl fill:#faf5ff,stroke:#7e22ce,stroke-width:1.5px,color:#0f172a
+    classDef alarm fill:#fef2f2,stroke:#b91c1c,stroke-width:1.5px,color:#0f172a
+
+    subgraph DEPLOY["1. CodeDeploy & Automated Verification"]
+        direction TB
+        CD["AWS CodeDeploy\nCanary / Linear Traffic Shift\n10% for 5 min -> 50% -> 100%"]:::ctrl
+        SMOKE["Pre-Shift Smoke Probes (:8443)\n• GET /health/ready & /health/live\n• PostgreSQL RLS Isolation Probe\n• OpenAPI & SSR Verification"]:::ctrl
+        CW["CloudWatch Circuit Breaker\n• ALB HTTP 5XX > 1%\n• p95 Latency > 500ms\n• ECS Unhealthy Task > 0"]:::alarm
+        CD -->|Verify| SMOKE
+        SMOKE -->|Pass| CD
+        CW -->|Breach -> Instant Rollback| CD
+    end
+
+    subgraph INGRESS["2. Production ALB Listeners"]
+        direction TB
+        L_PROD["Live Production Listener\nPort 443 HTTPS"]:::alb
+        L_TEST["Test / Validation Listener\nPort 8443 HTTPS"]:::alb
+    end
+
+    subgraph TARGETS["3. ALB Target Groups"]
+        direction TB
+        TG_BLUE["Target Group: BLUE (Active)\nTraffic Weight: 100% -> 0%"]:::blue
+        TG_GREEN["Target Group: GREEN (New)\nTraffic Weight: 0% -> 100%"]:::green
+    end
+
+    subgraph COMPUTE["4. ECS Fargate Task Sets (Web & API)"]
+        direction TB
+        TASKS_BLUE["Blue Task Set (v1.4.2)\nStable Running Tasks"]:::blue
+        TASKS_GREEN["Green Task Set (v1.5.0)\nNew ECR Image + Migrated Schema"]:::green
+    end
+
+    CD -->|Shift Weights| L_PROD
+    CD -->|1. Spin Up Green| TASKS_GREEN
+    L_PROD -->|Live Traffic| TG_BLUE
+    L_PROD -.->|Canary / Cutover| TG_GREEN
+    L_TEST -->|QA Smoke Tests| TG_GREEN
+    TG_BLUE --> TASKS_BLUE
+    TG_GREEN --> TASKS_GREEN
+    CD -.->|Rollback -> Revert 100% & Drain Green| TG_BLUE
+```
+  </Tab>
+</Tabs>
+
+### Traffic Cutover & Circuit Breaker Thresholds
+
+1. **Green Provisioning & Expand Migration:** Backward-compatible Drizzle/PostgreSQL expand migrations run prior to image swap; CodeDeploy spins up the **Green** ECS Task Set cleanly against the existing schema.
+2. **Pre-Shift Validation (`:8443`):** Internal synthetic checks verify `/api/v1/health/ready`, `/api/v1/health/live`, PostgreSQL Row-Level Security probes, OpenAPI integrity, and SSR page rendering on the test listener before any live customer sees Green.
+3. **Canary / Linear Shift (`:443`):** CodeDeploy routes **10% traffic for 5 minutes**, expands to **50%**, and completes at **100%**.
+4. **Automatic Circuit Breaker Rollback:** If CloudWatch detects **ALB HTTP 5XX greater than 1%**, **p95 API latency above 500 ms**, or **any unhealthy ECS task**, CodeDeploy reverts **100% of traffic to Blue in seconds** without rebuilding or re-deploying.
+5. **Drain Delay:** Blue tasks remain warm for **15 minutes** post-100% cutover to cover instantaneous manual or automated rollback windows before ECS drains and terminates them.
+
+---
+
+## 5. AWS Implementation Specifications
+
+| Tier | AWS Service | Production Sizing & Configuration | Key Security & Operational Invariants |
+|---|---|---|---|
+| **DNS & CDN** | Route 53 + CloudFront + ACM | Wildcard & white-label custom domains (`*.hellosmart.ai`), TLS 1.3 | Edge static caching and global low-latency termination. |
+| **WAF & Shield** | AWS WAF v2 | Managed OWASP Top 10, Bot Control, IP rate limits on `/auth/*` | Blocks credential stuffing and Layer 7 attacks prior to ALB. |
+| **Ingress** | Application Load Balancer | Dual-stack, cross-zone, Blue/Green Target Groups | Listeners `:443` (Production) and `:8443` (Blue/Green Verification). |
+| **Web & API** | Amazon ECS (Fargate) | `apps/web` (`Next.js 15`) & `apps/api` (`NestJS`) Multi-AZ auto-scaling | Blue/Green task sets; private subnets only (no public IPs). |
+| **AI Proxy** | Amazon ECS (Fargate) | FastAPI / Node (`:4000`), Auto-Scaling | **Sole LLM egress path (BR-13)**; resolves real keys from Secrets Manager. |
+| **Workers** | Amazon ECS (Fargate) | BullMQ Consumers (Autosave, Bundler, Reaper, Retention) | Processes S3 snapshots, GDPR anonymization, and telemetry batches. |
+| **Interactive IDEs** | EC2 Auto-Scaling Group | `m7i.2xlarge` Ubuntu hosts + **Sysbox (`sysbox-runc`)** | Native I/O speed & nested Docker. **IMDSv2 `HopLimit=1` blocks host credential theft.** |
+| **Evaluators** | Amazon EKS / Fargate | Pods scheduled with `RuntimeClass: gvisor` (`runsc`) | Isolates untrusted candidate grading code inside userspace syscalls. |
+| **Database** | Amazon RDS PostgreSQL 16 | Multi-AZ Primary + Standby + Read Replica, KMS CMK | Enforces Row-Level Security (`org_id` scoping per BR-01). |
+| **Cache & Queues** | Amazon ElastiCache Redis 7 | Multi-AZ Cluster with Auto-Failover | Powers BullMQ, sliding-window RPM limiters, and activity telemetry streams. |
+| **Object Storage** | Amazon S3 | 4 KMS-encrypted buckets (`snapshots`, `submissions`, `seeds`, `compliance`) | Lifecycle transitions to Glacier (`30d`/`180d`) & WORM Object Lock on compliance manifests. |
+| **Private Backbone** | AWS PrivateLink (VPC Endpoints) | S3 Gateway; Interface Endpoints for KMS, Secrets Manager, ECR, Logs | Keeps internal AWS API traffic off the public internet. |
+| **Secrets & Keys** | AWS Secrets Manager + KMS | Customer Managed Keys (CMK), automated rotation | Stores Anthropic/OpenAI keys, HMAC anonymization salts, and Ed25519 keys. |
+| **Observability** | CloudWatch, GuardDuty, CloudTrail | Centralized JSON logs, Container Insights, 5xx/latency alarms | Alarms trigger immediate CodeDeploy Blue/Green rollback. |
+
+---
+
+## 6. Architectural Non-Negotiables for Provisioning
+
+<Callout type="warn" title="Strict Security Controls (Must Validate Before Go-Live)">
+Verify every control below before onboarding enterprise customer traffic onto Production AWS.
+</Callout>
+
+1. **Block Container Access to Host IAM (`IMDSv2 HopLimit=1`):** Enforce `HttpPutResponseHopLimit = 1` on every EC2 Launch Template backing the Sysbox ASG so inner candidate containers cannot reach `169.254.169.254` to steal host IAM credentials.
+2. **Zero-Trust Sandbox Egress:** Private Sandbox Subnets (`Sysbox` + `gVisor`) have **no route** to Private Data Subnets (`RDS` or `ElastiCache`). Candidate code reaches external LLMs solely via the AI Proxy using short-lived **15-minute Workspace Session JWTs** (`BR-13`).
+3. **Dual Sandbox Isolation:** Keep interactive browser IDE sessions on **Sysbox (`sysbox-runc`)** EC2 hosts (needed for full nested Docker-in-Docker & OpenVSCode I/O) and isolate automated submission grading runs on **EKS `gVisor` (`runsc`)** pods so untrusted test binaries never share host kernel syscalls.
+4. **PrivateLink for Internal AWS Calls:** Route S3, ECR image pulls, Secrets Manager lookups, KMS decryption, and CloudWatch log shipping through VPC Interface/Gateway Endpoints so sensitive data never touches the public internet or wastes NAT bandwidth.
+5. **Tenant Data Isolation (`BR-01`) + Encryption at Rest:** Enforce PostgreSQL Row-Level Security (`org_id`) in RDS alongside customer-managed KMS encryption across RDS, ElastiCache, EBS volumes, Secrets Manager, and all 4 S3 buckets.
+6. **Compliance WORM Retention:** Enable **S3 Object Lock (WORM)** on the `compliance` bucket so signed Ed25519 deletion certificates remain tamper-proof for statutory audit periods even after GDPR anonymization purges candidate PII from RDS.
+

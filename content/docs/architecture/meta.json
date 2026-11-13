@@ -1,0 +1,11 @@
+{
+  "title": "Architecture & Frameworks",
+  "pages": [
+    "system-architecture",
+    "aws-migration",
+    "task-spec-v1",
+    "ai-proxy-gateway",
+    "reviewer-pipeline",
+    "frameworks-and-versions"
+  ]
+}

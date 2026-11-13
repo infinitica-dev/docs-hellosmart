@@ -1,0 +1,41 @@
+---
+title: "Timing and windows"
+description: "HelloSmart MMP Knowledge Base — Chapter 10: Timing and windows"
+---
+
+<RoleBadge roles={["sde", "ai", "qa", "mgmt"]} />
+
+### 10.1 The three modes
+
+| Mode | Rule | Example |
+|---|---|---|
+| Time-bound | N minutes or hours from the candidate's first connect. Countdown is visible; auto-submit at expiry. | "You have 4 hours." |
+| Window-bound | The workspace is accessible only between a start and an end date and time, in a stated timezone. | "Open from 1 to 7 November." |
+| Combined | Both rules apply and both are enforced by the server. | "Start any time in 7 days, then 4 hours." |
+
+### 10.2 What happens when a candidate clicks Connect
+
+```mermaid
+flowchart TD
+  C["Candidate clicks Connect"] --> W{"Window-bound?"}
+  W -->|"Yes"| W1{"Is it inside the window?"}
+  W1 -->|"No"| X["Blocked with a clear message"]
+  W1 -->|"Yes"| D{"Time-bound?"}
+  W -->|"No"| D
+  D -->|"Yes"| D1{"Time remaining?"}
+  D1 -->|"None"| X2["Blocked, or auto-submitted"]
+  D1 -->|"Yes"| OK["Workspace connects"]
+  D -->|"No"| OK
+```
+
+### 10.3 Disconnects and the clock
+
+The timer **keeps running** while a candidate is disconnected. Each assessment has a "Pause timer on disconnect" setting that is **off by default**, and the consent screen warns candidates before they connect. The countdown shown in the browser is for display only; the server enforces access. Deadlines are computed in UTC. The company's IANA timezone is stored separately and is not used for the arithmetic, so daylight-saving changes do not add or remove minutes. When pause is turned on, the deadline moves forward by the disconnect duration, capped at 24 hours, and still cannot pass the window ceiling.
+
+A worker runs every 30 seconds. When `now >= deadline_at` it snapshots the current answers, sets `auto_submitted = true`, and revokes the workspace write token. A manual submit in the same moment produces one submission.
+
+### 10.4 Extensions
+
+A company can extend a candidate's time or window, or revoke access. These are logged and shown to the candidate.
+
+---

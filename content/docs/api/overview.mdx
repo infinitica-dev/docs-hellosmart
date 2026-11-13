@@ -1,0 +1,277 @@
+---
+title: "API Documentation & Standards"
+description: "RESTful OpenAPI 3.1 specification, authentication cookies, RFC 7807 problem details, and rate limiting."
+---
+
+<RoleBadge roles={["sde", "qa"]} />
+
+# API Documentation & Standards
+
+HelloSmart's API is designed **contract-first** using **OpenAPI 3.1**. The single source of truth for all schemas lives in `packages/contracts/openapi/openapi.yaml`.
+
+---
+
+## 1. Authentication & Session Architecture
+
+All HTTP API endpoints are secured via **HttpOnly session cookies** or short-lived workspace tokens:
+
+| Auth Method | Target Audience | Header / Cookie | Lifecycle |
+|---|---|---|---|
+| **Session Cookie** | Company Admin & Candidates | `Set-Cookie: hs_session=...; HttpOnly; Secure; SameSite=Lax` | 7-day sliding window |
+| **Workspace Bearer** | Candidate Sysbox Container | `Authorization: Bearer <short_lived_token>` | Duration of assessment run only |
+| **Platform Token** | Platform Admin Console | `Authorization: Bearer <platform_mfa_token>` | 8-hour expiry with mandatory MFA |
+
+---
+
+## 2. Standard Error Response (RFC 7807 Problem Details)
+
+All error responses from the HelloSmart API return the standard `application/problem+json` format:
+
+```json
+{
+  "type": "https://hellosmart.ai/problems/not-found",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "The requested resource was not found.",
+  "instance": "/api/v1/candidates/cnd_98a76b5c-4321",
+  "invalidParams": []
+}
+```
+
+### The 404 Security Rule (BR-01)
+If a user requests a resource that belongs to another organization:
+- The API **must return 404 Not Found**, exactly as if the resource did not exist.
+- It **must never return 403 Forbidden**, preventing unauthorized callers from determining whether resource UUIDs exist in other tenants.
+
+---
+
+## 3. Core REST Endpoints Catalog
+
+### Authentication & Identity
+```http
+POST /api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "lead@company.com",
+  "password": "CorrectPassword123!",
+  "mfaCode": "123456"
+}
+```
+
+```http
+POST /api/v1/auth/sso/verify
+Content-Type: application/json
+
+{
+  "provider": "google",
+  "idToken": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+```http
+POST /api/v1/auth/mfa/verify
+Content-Type: application/json
+
+{
+  "preAuthToken": "preauth_token_xyz",
+  "totpCode": "123456"
+}
+```
+
+```http
+POST /api/v1/auth/logout
+```
+
+```http
+POST /api/v1/auth/password/change
+Content-Type: application/json
+
+{
+  "currentPassword": "OldPassword123!",
+  "newPassword": "NewStrongPassword456!"
+}
+```
+
+```http
+GET /api/v1/me
+```
+
+### Platform Admin Organization Management
+```http
+POST /api/v1/admin/organizations
+Content-Type: application/json
+
+{
+  "name": "Brindle & Co",
+  "slug": "brindle-co",
+  "adminEmail": "admin@brindle.co",
+  "adminName": "Jane Doe",
+  "planId": "plan_trial",
+  "retentionDays": 90
+}
+```
+
+```http
+PATCH /api/v1/admin/organizations/:id/status
+Content-Type: application/json
+
+{
+  "status": "suspended",
+  "reason": "Trial period expired"
+}
+```
+
+```http
+GET /api/v1/admin/organizations?page=1&pageSize=20&search=acme&status=suspended
+```
+Paginated organization list. Search (company name, slug or company-admin email, case-insensitive; `%`, `_` and `\` are matched literally), the `status` filter and pagination (`page`, `pageSize` max 100) are executed server-side. Response: `{ items, page, pageSize, total }`, where `total` is the count after filtering.
+
+```http
+GET /api/v1/admin/organizations/:id
+```
+
+```http
+PATCH /api/v1/admin/organizations/:id/entitlements
+Content-Type: application/json
+
+{
+  "maxTemplates": 10,
+  "maxCandidates": 50,
+  "pendingInviteMultiplier": 2.5,
+  "trialEndsAt": "2026-12-31T23:59:59.000Z",
+  "flags": {
+    "cloud": true,
+    "chat": true,
+    "white_label": false,
+    "custom_domain": false,
+    "managed_ai_credits": true
+  }
+}
+```
+Returns the updated organization detail, read inside the same transaction as the write so the response always reflects the new entitlements. The change is recorded in the audit log (`entitlements.modified`, with before/after values).
+
+### Candidates Management
+```http
+POST /api/v1/candidates
+Content-Type: application/json
+
+{
+  "name": "Alex Mercer",
+  "email": "alex.mercer@example.com",
+  "assessmentId": "asm_1a2b3c4d"
+}
+```
+
+### Candidate Workspace Connection
+```http
+POST /api/v1/portal/assignments/{assignmentId}/connect
+Content-Type: application/json
+
+{
+  "consentAccepted": true,
+  "fullScreenConfirmed": true
+}
+```
+**Response**:
+```json
+{
+  "workspaceId": "ws_789abc",
+  "status": "connected",
+  "wsStreamUrl": "wss://ws.hellosmart.ai/stream/ws_789abc",
+  "sessionToken": "jwt_short_lived_session_token",
+  "expiresAt": "2026-10-25T20:30:00Z"
+}
+```
+
+---
+
+## 4. Webhooks & Object Storage Architecture
+
+HelloSmart processes incoming asynchronous webhooks idempotently:
+
+- **Razorpay**: Reconciles subscription renewals and one-time quote purchases at `/api/v1/webhooks/razorpay`. Verifies HMAC-SHA256 signature using `RAZORPAY_WEBHOOK_SECRET`.
+- **cal.com**: Ingests prospective enterprise customer discovery meetings at `/api/v1/webhooks/calcom` to automatically transition leads in our sales pipeline. Validates `cal-signature-256` using constant-time HMAC comparison.
+
+### Artifact & Storage API Endpoints
+- `POST /api/v1/storage/upload`: Multipart file upload for candidate submission artifacts.
+- `GET /api/v1/storage/download-url/{assignmentId}/{objectId}`: Generates a presigned or HMAC-signed artifact retrieval URL.
+- `GET /api/v1/storage/download`: Streams requested submission artifact with signed token validation.
+
+### Commercial Quoting, Pricing & Promo API Endpoints (Stream 9)
+- `POST /api/v1/admin/quotes`: Generate itemized commercial quote with 18% GST and secure public access token.
+- `GET /api/v1/admin/quotes`: List commercial quotations (filterable by leadId, orgId, status).
+- `GET /api/v1/admin/quotes/{id}`: Retrieve detailed quotation with line snapshots and tax breakdowns.
+- `GET /api/v1/admin/pricing-catalog`: List subscription plans, custom templates, and add-on products.
+- `GET /api/v1/admin/pricing-catalog/{id}`: Retrieve detailed pricing catalog product information by ID.
+- `POST /api/v1/admin/pricing-catalog`: Create a new product in the centralized pricing catalog.
+- `PATCH /api/v1/admin/pricing-catalog/{id}`: Update dynamic product attributes, currency, prices, or billing schedules.
+- `POST /api/v1/admin/pricing-catalog/{id}/activate`: Activate product for quote generation.
+- `POST /api/v1/admin/pricing-catalog/{id}/deactivate`: Deactivate product to prevent inclusion in future quotes.
+- `GET /api/v1/admin/promo-codes`: List active and scheduled promotional discount codes.
+- `POST /api/v1/admin/promo-codes`: Create percentage or fixed monetary promotional codes.
+- `GET /api/v1/quotes/{token}`: Customer review screen endpoint. Retrieves immutable quote snapshot, line items, and GST breakdown using the secure public access token (PHS-I128 / SP-010).
+- `POST /api/v1/quotes/{token}/accept`: One-click customer quote acceptance. Atomically and idempotently accepts an issued quote, persists customer acceptance evidence and an append-only audit event in `audit.events` (PHS-I128 / SP-010).
+
+### Audit & Tamper-Evident Ledger (AD-027, BR-31, BR-32)
+- `GET /api/v1/admin/audit`: List global audit events with pagination, search, actor, entity, and date filters (Platform Admin only). `start_date` / `end_date` must be valid ISO 8601 dates or datetimes (e.g. `2026-11-01`, `2026-11-01T10:00:00Z`); anything else returns `422`. `entity`, `action` and `search` match literally: `%`, `_` and `\` are not treated as wildcards.
+- `POST /api/v1/admin/audit/verify-chain`: Verify internal SHA-256 hash-chain continuity of the audit ledger from genesis to head (Platform Admin only).
+
+### Platform AI Keys Vault & Credit Allocations (AD-023, AD-024, BR-16, BR-17)
+- `GET /api/v1/admin/ai-keys`: List platform-managed AI provider keys with masked key strings and allocation counts (Platform Admin only; raw secrets are never returned).
+- `POST /api/v1/admin/ai-keys`: Securely vault and register a platform AI provider key using AES-256-GCM envelope encryption.
+- `GET /api/v1/admin/ai-keys/{id}`: Retrieve platform AI key metadata.
+- `PATCH /api/v1/admin/ai-keys/{id}`: Update metadata or rotate an existing platform key's secret.
+- `DELETE /api/v1/admin/ai-keys/{id}`: Revoke a platform AI key.
+- `POST /api/v1/admin/ai-keys/{id}/test`: Verify local AES-256-GCM envelope decryption and ciphertext integrity for a vaulted platform key (does not make external calls to provider APIs).
+- `GET /api/v1/admin/ai-allocations`: List tenant credit allocations with usage and balance details.
+- `POST /api/v1/admin/ai-allocations`: Allocate platform AI credits to a tenant organization with spend caps and markup percentage.
+- `GET /api/v1/admin/ai-allocations/{id}`: Retrieve credit allocation details.
+- `PATCH /api/v1/admin/ai-allocations/{id}`: Adjust allocated credit balance or rate limits with concurrency-safe locking.
+- `POST /api/v1/admin/ai-allocations/{id}/revoke`: Revoke tenant credit allocation.
+- `GET /api/v1/admin/ai-vault/stats`: Retrieve aggregate key and credit balance metrics across the platform. Revoked allocations are excluded from every total. `totalRemainingBalanceCents` sums only usable credit (allocations that are `active` and not past `expires_at`). `lowBalanceAlert` is `true` when at least one non-revoked allocation exists and the usable balance is below `lowBalanceThresholdCents` ($20.00 = 2000); an empty or fully revoked vault does not raise it. Consumption (`used_amount_cents`) is not yet fed by the AI proxy, so usage totals stay at zero until metering is connected.
+
+### Workspaces Live Monitoring & Emergency Kill-Switch (AD-018, AD-019, BR-22, BR-23)
+- `GET /api/v1/admin/workspaces`: List candidate workspaces across all tenant organizations with status/mode/org filters, search, idle duration, and tenant credit allocation context (Platform Admin only).
+- `GET /api/v1/admin/workspaces/{id}`: Retrieve detailed workspace session state, recent activity event signals, and tenant credit line context (Platform Admin only).
+- `POST /api/v1/admin/workspaces/{id}/destroy`: Super Admin emergency kill-switch mutation. Atomically transitions workspace to `destroyed`, revokes candidate assignment write tokens, records disconnect activity, and writes an immutable SHA-256 hash-chained audit record in `audit.events`. Explicitly indicates MMP limitations (hypervisor container teardown and candidate notifications are unconnected in MMP; candidate session disconnects on next ping).
+
+### Timing, disconnect, and accommodations (BR-08, BR-09, CO-031)
+- `GET /api/v1/candidate/assessment/timing?assignmentId=`: Server clock snapshot `{ deadlineAtUtc, remainingSeconds, isExpired }` plus the IANA timezone stored beside the UTC deadline.
+- `POST /api/v1/candidate/assignments/{id}/connect`: Starts or resumes a session. Outside the window the response is HTTP 403 `WINDOW_NOT_OPEN` (with `secondsUntilWindowStart`) or `WINDOW_EXPIRED`.
+- `POST /api/v1/candidate/workspaces/{id}/events`: Records disconnect and resume. The timer keeps running unless `pauseTimerOnDisconnect` is true.
+- `POST /api/v1/candidate/assignments/{id}/submit`: Manual submit. Races with the auto-submit worker are settled by `SELECT FOR UPDATE SKIP LOCKED`.
+- `POST /api/v1/company/assignments/{id}/extend-time`: Company admin adds minutes and a reason. The change is written to `audit.events` in the same transaction (BR-31).
+
+---
+
+## 5. Security Controls & Request Hardening (S0-T14-1)
+
+The API enforces strict defense-in-depth security controls on all incoming and outgoing HTTP traffic:
+
+### A. HTTP Security Headers
+- **HSTS**: `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` in production/staging environments (disabled in development to prevent local browser lockouts).
+- **MIME Sniffing**: `X-Content-Type-Options: nosniff` enforced on all responses, including RFC 7807 error envelopes.
+- **Clickjacking / Framing**: `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'` prevent embedding API responses.
+- **Server Identity**: `X-Powered-By` header is stripped across all responses.
+
+### B. Strict CORS Architecture
+- **Origin Whitelist**: Validates requests against explicit entries in `CORS_ORIGINS`. Untrusted origins do not receive CORS headers.
+- **No Wildcard**: Wildcard `*` is strictly disallowed when `credentials: true`.
+- **Allowed Methods**: `GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS`.
+- **Preflight Cache**: 86,400 seconds (24 hours).
+
+### C. CSRF & Origin Validation
+- **Custom Header**: State-changing browser requests (`POST`, `PUT`, `PATCH`, `DELETE`) must send  `X-HS-CSRF: 1`.
+- **Origin / Referer Verification**: Evaluates request `Origin` (falling back to strict URL parsing on `Referer` if `Origin` is omitted) against the configured trusted origin. Substring and domain-suffix attacks are rejected.
+- **Exemptions**: Server-to-server endpoints (such as external payment and booking webhooks) are explicitly decorated with `@SkipCsrf()`.
+
+### D. Input Validation & Body Size Caps
+- **Body Limit**: Enforced at 1 MB (1,048,576 bytes) by Fastify adapter. Oversized payloads return RFC 7807 `413 PAYLOAD_TOO_LARGE`.
+- **Strict Zod Schemas**: Incoming JSON payloads are parsed with `ZodValidationPipe`, which rejects unknown/unrecognized properties with `422 VALIDATION_ERROR`.
+- **Malformed JSON**: Parse errors return RFC 7807 `400 BAD_REQUEST`.
+
+### E. Rate Limiting (Throttling)
+- **Global Tier**: 100 requests per minute per IP address.
+- **Authentication Tier**: Strict 5 requests per minute per IP on credentialed auth endpoints (`/auth/login`, `/auth/mfa/verify`). Integrated with account lockout controls (5 failed attempts per user account).
+

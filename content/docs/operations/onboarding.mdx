@@ -1,0 +1,58 @@
+---
+title: "Engineer Onboarding Guide"
+description: "Local setup, required dependencies, and first commit workflow"
+---
+
+<RoleBadge roles={["sde","qa"]} />
+
+# Onboarding: day one
+
+## 1. Access (Product Delivery / Architecture sets these up)
+- [ ] GitHub `infinitica-org` with 2FA, added to your department team
+- [ ] Zoho Sprints project **HelloSmart MMP**
+- [ ] AI coding agent seat (company plan)
+- [ ] Figma (view), team chat
+- [ ] QA env allowlist (send your office/VPN IP) + QA basic-auth credentials
+- [ ] No AWS console access by default. Production access is Architecture & Platform only, via IAM Identity Center.
+
+## 2. Read (about 2 hours, in this order)
+1. [Documentation Home](/docs) & root `README.md`: what the product is
+2. [Knowledge Base](/docs/knowledge-base/00-start-here) & root `AGENTS.md` §1–8: requirements and business rules
+3. [Architecture & Delivery Plan](/docs/planning/delivery-plan): architecture, AI-SDLC, schedule
+4. [Team Seats & Ownership](/docs/operations/team): your department and paths
+5. Root `CONTRIBUTING.md` + `CLAUDE.md` + your module's `CLAUDE.md`
+6. [Threat Model](/docs/security/threat-model) & [Security Checklist](/docs/security/launch-security-checklist)
+
+## 3. Set up your machine
+| Tool | Version |
+|---|---|
+| Node | `>= 22.11.0` (`.nvmrc`: `22.11.0` via `nvm use`) + `corepack enable` (`pnpm 9.12.3`) |
+| Python | 3.12 + [uv](https://docs.astral.sh/uv/) |
+| Docker Desktop / Engine | latest |
+| Terraform | 1.9.x (Architecture & Data Ops only) |
+| pre-commit, gitleaks | latest |
+
+```bash
+git clone https://github.com/infinitica-org/hellosmart.git && cd hellosmart
+git checkout dev
+pre-commit install
+pnpm install
+cp .env.example .env
+pnpm infra:up && pnpm db:migrate && pnpm db:seed
+pnpm dev
+```
+Check that http://localhost:3000 (web), http://localhost:4010 (mock API) and http://localhost:8025 (mail) load.
+
+API (`pnpm --filter @hs/api dev` with `.env` from `.env.example`): `GET http://localhost:4000/api/v1/health` (liveness) and `GET /api/v1/health/ready` (Postgres + Redis). Auth: `POST /api/v1/auth/login`, `POST /api/v1/auth/mfa/verify`, `GET /api/v1/me`, `POST /api/v1/auth/logout` (HttpOnly `hs_session` cookie, 12h rolling TTL in Redis). Platform admin provisioning: `POST /api/v1/admin/organizations`, `PATCH /api/v1/admin/organizations/:id/status` (`platform_admin` + MFA session). Local Redis uses password `hs_redis_local` (see `REDIS_URL` in `.env.example`). Platform admin MFA uses `PLATFORM_ADMIN_MFA_SECRET` (see seed).
+
+## 4. Your first ticket
+1. Take a Zoho item tagged `good-first` in your epic.
+2. `/new-task <ID>`, get the brief approved.
+3. `git worktree add ../.worktrees/<ID> -b feat/<ID>-slug origin/dev`
+4. Run your agent in the worktree; follow `CLAUDE.md`.
+5. `/security-check`, open the PR to `dev`, get it reviewed, merge, then verify on QA.
+
+## 5. Week one goals
+- One merged PR with tests
+- Know your department's contracts and fakes
+- Have run the full local stack and the QA environment
