@@ -19,7 +19,7 @@ description: "Sprint S0 through S6 scope, milestones, and architectural decision
 | D-01 | Scope | Full MMP: all 126 `MMP` items in AGENTS.md. Phase 2/3 not built; extension points only. |
 | D-02 | Launch | Sat 12 Dec 2026. Code freeze Thu 10 Dec 18:00 IST. |
 | D-03 | Frontend | TypeScript, **Next.js 15 (App Router)**, Tailwind, shadcn/ui, TanStack Query |
-| D-04 | Backend API | TypeScript, **NestJS** (modular monolith), Drizzle ORM, Zod contracts |
+| D-04 | Backend API | TypeScript, **NestJS** (modular monolith), Kysely on `pg` (supersedes Drizzle, ADR 0011), Zod contracts |
 | D-05 | AI services | **Python 3.12, FastAPI**: AI proxy and reviewer-agent service |
 | D-06 | Database | **Aurora PostgreSQL 16** Multi-AZ, Row-Level Security on `org_id` |
 | D-07 | Cache / limits | ElastiCache Redis (rate limits, AI caps, sessions) |
@@ -435,7 +435,7 @@ hellosmart/
 │  ├─ ws-agent/       on-VM recorder/autosave
 │  └─ ws-gateway/     authenticated reverse proxy to VMs
 ├─ packages/
-│  ├─ contracts/      OpenAPI, Zod, events, DB schema (Drizzle)
+│  ├─ contracts/      OpenAPI, Zod, events, DB schema (SQL migrations)
 │  ├─ ui/             design system
 │  ├─ fixtures/       seed + test data
 │  ├─ adapters/       payment, email, llm, runtime (real + fake)

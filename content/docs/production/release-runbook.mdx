@@ -46,7 +46,7 @@ sequenceDiagram
 ### Prohibited In-Flight Migration Operations
 - Never run `ALTER TABLE ... DROP COLUMN` in the same deployment that stops referencing it.
 - Never add a `NOT NULL` constraint without a prior deployment that populates defaults on historical rows.
-- Never rename columns directly. Create a new column, dual-write via Drizzle ORM, backfill, and drop the old column in a future sprint.
+- Never rename columns directly. Create a new column, dual-write through the data-access layer, backfill, and drop the old column in a future sprint.
 
 ---
 

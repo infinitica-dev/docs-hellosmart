@@ -10,6 +10,7 @@
     "0007-supply-chain",
     "0008-ai-sdlc",
     "0009-hellosmart-fabric-rms",
-    "0010-multi-runtime-sandbox-gvisor-sysbox"
+    "0010-multi-runtime-sandbox-gvisor-sysbox",
+    "0011-kysely-data-access"
   ]
 }

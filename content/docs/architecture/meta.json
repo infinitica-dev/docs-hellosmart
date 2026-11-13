@@ -6,6 +6,7 @@
     "task-spec-v1",
     "ai-proxy-gateway",
     "reviewer-pipeline",
+    "frontend-data-layer",
     "frameworks-and-versions"
   ]
 }

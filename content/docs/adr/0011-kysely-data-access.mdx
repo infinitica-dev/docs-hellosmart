@@ -1,0 +1,47 @@
+---
+title: "0011: Typed data access with Kysely (supersedes the Drizzle decision)"
+description: "Architecture Decision Record: 0011: Typed data access with Kysely on the tenancy transaction client"
+---
+
+<RoleBadge roles={["sde"]} />
+
+# 0011: Typed data access with Kysely (supersedes the Drizzle decision)
+
+**Status:** Accepted · 2026-11-13 · Supersedes the Drizzle ORM part of frozen decision D-04
+
+## Context
+D-04 named Drizzle ORM for the API and `drizzle-orm` was installed, but it was never imported. All data access was hand-written SQL strings passed to `pg` (`client.query(text, params)`) from services, repositories, adapters and workers.
+
+That caused repeated problems:
+- **Duplication.** The same lock, count or insert was written two to five times (the candidate cap count, the assignment `FOR UPDATE`, the retention candidate scan, the organization column list).
+- **Hand-numbered placeholders** (`$${paramIndex++}`) in every filter builder.
+- **Nothing checked SQL against the schema.** A column named in a string that did not exist failed only at runtime.
+- **Parity risk in tenancy code.** Correctness depends on every query running on the connection that `withOrg` / `withPlatform` / `withUserSession` prepared.
+
+## Decision
+Use **Kysely** as a typed query builder on top of the existing `pg` pool, bound to the tenancy transaction client. No ORM, no schema ownership, no second connection path.
+
+- **`db(tx)`** (`apps/api/src/common/database/kysely`) returns a typed builder that runs every query on the `tx` client handed out by `withOrg`, `withPlatform` or `withUserSession`. It never opens a connection and refuses to begin or commit a transaction, so RLS sees the same `app.org_id` as hand-written SQL did. `org_id` is never an argument.
+- **Types come from the migrations.** `pnpm --filter @hs/api db:types` builds a throwaway database from `packages/contracts/db/migrations`, introspects it with `kysely-codegen` and rewrites `db.generated.ts`. `db:types:check` fails when the committed file is out of date. Migrations stay the source of truth (ADR 0004).
+- **Generic helpers** for what was repeated: `callFunction` and `callTableFunction` (call a `SECURITY DEFINER` SQL function by validated `schema.name` with bound arguments), `tryAdvisoryLock` / `releaseAdvisoryLock`, and `cleanText`, `containsPattern`, `countAllAsInt`, `timestampParam` for filters. Module-level query files (`candidates.queries.ts`, `retention.queries.ts`, `calcom-webhook.queries.ts`, ...) hold queries shared by several callers.
+- **A guard test** (`apps/api/test/no-raw-sql.guard.test.ts`) fails on any raw `.query(` in `apps/api/src` that is not transaction control and not on a short, justified allow-list. An entry with no raw call left fails the test, so the list only shrinks.
+- **Complex SQL stays SQL, but typed.** Window, `jsonb`, `FILTER` and CTE expressions use Kysely's `sql` tag inside a typed query. Parameters are always bound.
+
+### Rules for new code
+1. Data access goes through `db(tx)` inside `withOrg`, `withPlatform` or `withUserSession` (AGENTS rule: every query runs inside `withOrg(orgId)`).
+2. Never interpolate values or identifiers into SQL. Dynamic identifiers must come from a fixed list.
+3. Every new endpoint keeps its cross-tenant test. Prefer a real-Postgres test under the `hs_app` role; `apps/api/test/support/rollback-db.ts` runs one in a transaction that is always rolled back.
+4. The audit ledger (`audit-writer.ts`), the migrator, `VACUUM` and the chain verifier are the only raw SQL by design. Anything else on the allow-list needs a reason a reviewer can check.
+
+## Alternatives considered
+- **Drizzle ORM** (the original decision). It owns the schema definition, which conflicts with SQL migrations owned by `packages/contracts` (ADR 0004), and it was never adopted.
+- **Prisma.** Its query engine manages its own connections and transactions, which fights per-transaction `set_config('app.org_id', ...)`.
+- **A hand-written helper only.** Cheaper, but gives no compile-time check of table and column names, which was the main source of runtime-only failures.
+
+## Consequences
++ Column and table names are checked at compile time, against the schema the migrations produce.
++ The tenancy wrappers are unchanged and still the only way to get a transaction client.
++ Duplicated queries became shared functions, and the filter builders no longer number placeholders by hand.
++ New dependencies: `kysely` 0.29.7 (MIT) at runtime and `kysely-codegen` 0.20.0 (MIT) for development only. The unused `drizzle-orm` dependency is removed.
+− Kysely binds every literal as its own parameter, so test doubles that match SQL text or parameter positions must read the compiled form (lowercase, quoted identifiers; in an `UPDATE` the `SET` values bind before the `WHERE` values). Prefer asserting behaviour against real Postgres.
++ Schema reconciliation across historical migrations (`0014`, `0018`) was completed in `0025_reconcile_assignments_workspaces_submissions.sql`, bringing `app.assignments`, `app.workspaces`, `app.submissions`, and `app.ai_messages` into type parity. All business services and ports are now 100% migrated to Kysely.

@@ -174,7 +174,7 @@ flowchart TD
 ## 6. Definition of Done for Leadership Sign-Off
 
 Before any milestone is accepted or promoted to production:
-1. **Contract and Schema Integrity**: OpenAPI specifications and Drizzle database models match with zero unmapped fields.
+1. **Contract and Schema Integrity**: OpenAPI specifications and the generated database types (`pnpm --filter @hs/api db:types:check`) match the migrations with zero unmapped fields.
 2. **Tenancy Verification**: Automated test suites confirm that cross-tenant read attempts return HTTP 404 (`pnpm test:tenancy`).
 3. **Evidence Validation**: All reviewer agent scoring runs produce verified line and file citations.
 4. **Documentation Compliance**: The change passes `pnpm docs:sync-check` with zero documentation drift.

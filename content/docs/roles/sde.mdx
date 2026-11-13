@@ -44,13 +44,13 @@ flowchart TD
 
 | Path | Package Name | Responsibility | Tech Stack |
 |---|---|---|---|
-| `apps/api` | `@hs/api` | Tenancy, authentication, assessment orchestration, timing engine, and billing | NestJS 10, Fastify, Drizzle ORM |
+| `apps/api` | `@hs/api` | Tenancy, authentication, assessment orchestration, timing engine, and billing | NestJS 10, Fastify, Kysely |
 | `apps/web` | `@hs/web` | Master login, Company portal, Candidate portal, and Platform Admin console | Next.js 15 (App Router), React 19, Tailwind CSS |
 | `apps/docs` | `@hs/docs` | Internal developer documentation, architecture specs, and BRD index | Next.js 16, Fumadocs, Mermaid |
 | `apps/worker` | `@hs/worker` | Auto-submit scheduler, snapshot persistence, and container cleanup jobs | BullMQ, Node.js (`>= 22.11.0`) |
 | `services/ws-gateway` | `@hs/ws-gateway` | Candidate terminal PTY streaming and full-screen telemetry events | Fastify WebSocket, node-pty |
 | `services/ai-proxy` | `@hs/ai-proxy` | Egress control, model allowlists, and per-candidate token metering | Fastify, undici, AWS Secrets Manager |
-| `packages/contracts` | `@hs/contracts` | Shared OpenAPI 3.1 contracts, Zod validation schemas, and database migrations | Zod, TypeScript, Drizzle migrations |
+| `packages/contracts` | `@hs/contracts` | Shared OpenAPI 3.1 contracts, Zod validation schemas, and database migrations | Zod, TypeScript, SQL migrations |
 
 ---
 

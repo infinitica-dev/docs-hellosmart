@@ -1,0 +1,45 @@
+---
+title: "Frontend Data Layer (Role-Wise RTK Query Stores)"
+description: "How the web app fetches data: three isolated role stores, one shared base query, and the few documented exceptions."
+---
+
+<RoleBadge roles={["sde", "qa"]} />
+
+# Frontend Data Layer
+
+The web app (`apps/web`) fetches data through **Redux Toolkit Query**, with one isolated store per role. No UI component calls `fetch()` directly.
+
+## Three isolated stores
+
+| Role | Store | API slice | Holds |
+|---|---|---|---|
+| Platform Super Admin | `store/admin/adminStore.ts` | `adminApi` | tenants, AI vault, workspaces, audit, quotes |
+| Company Admin | `store/company/companyStore.ts` | `companyApi` | templates, assessments, rubrics, candidates, submissions |
+| Candidate | `store/candidate/candidateApi.ts` | `candidateApi` | assignments, session, timing, drafts, submissions |
+
+Each role layout mounts only its own provider (`providers/store-provider.tsx`) on a dedicated React context, so a candidate component can never read company or admin state from browser memory.
+
+## One base query
+
+All slices share `createCustomBaseQuery` (`store/api/baseApi.ts`):
+
+- **Authentication is the HttpOnly session cookie** (`credentials: 'include'`), not a Bearer header. JavaScript never sees the session token, by design; an `Authorization: Bearer` header would require exposing it. State-changing requests carry the CSRF header `X-HS-CSRF: 1`.
+- **401** purges that role's cache, signs the user out as `session-expired`, and redirects to the master login `/login?reason=session-expired` (candidates sign in there too). Concurrent 401s are de-duplicated.
+- **429** shows one rate-limit toast (de-duplicated per endpoint).
+- **404 and other errors** are normalized into `{ status, code, message }`; nothing throws an unhandled rejection.
+- **Cache tags** drive refetching: creating or editing an assessment, candidate, template or quote invalidates the matching lists across the app.
+
+## Logout, expiry and identity changes
+
+Signing out, or a 401, runs `purgeXStore`: the API cache is reset and the whole store state is rebuilt from scratch. On top of that, `discardStaleResponses` (first in every role store's middleware chain) drops the answer to any request that was still in flight at that moment. Without it, a late response from Company A would re-register A's record ids as cache tags after Company B signed in on the same browser.
+
+Page refresh rehydrates the session from the server (`/me`). Until it resolves, layouts show a loading state; they never render an unauthenticated screen or redirect while loading.
+
+## The documented exceptions
+
+A test (`no-direct-api-calls`) fails if raw `fetch()` appears in any page, component, hook or provider, or if the deprecated `@/lib/api-client` is imported outside an explicit allowlist. Two small exceptions exist because they are not role-scoped request/response data:
+
+1. **Pre-login and public pages** (login, accept-invite, set and change password, the public quote page) run before any role store exists. They use `@/lib/api-client` and `authRequest` from `@/lib/raw-network`.
+2. **Streams, beacons and probes**: the AI copilot event stream, the activity heartbeat and the network speed test go through named wrappers in `@/lib/raw-network`, the single sanctioned place for a raw request in UI-facing code.
+
+`@/lib/candidate-api` now holds only types; its fetch helpers were replaced by `candidateApi` endpoints.

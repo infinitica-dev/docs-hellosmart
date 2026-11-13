@@ -21,7 +21,7 @@ This document defines the frozen technology stack, runtime versions, and archite
 | **Core Language** | TypeScript | `5.6.3 / 7.0` | Strict end-to-end type safety |
 | **Backend Framework** | NestJS | `10.4.6` | Enterprise modular monolith API architecture |
 | **HTTP Engine** | Fastify | `10.4.6` | High-throughput HTTP & WebSocket transport (replaces Express) |
-| **ORM / Data Layer** | Drizzle ORM | `0.36.0` | SQL-first schema definitions and type-safe query building |
+| **Data Access** | Kysely on `pg` (+ `kysely-codegen`, dev only) | `0.29.7` / `0.20.0` | Typed query builder bound to the tenancy transaction client; schema types generated from the SQL migrations (ADR 0011) |
 | **Database Engine** | PostgreSQL | `16.x` | Primary relational database with RLS, `citext`, and `pgcrypto` |
 | **Cache & Queue** | Redis | `7.2` | BullMQ background jobs, rate limiting, and session state |
 | **Frontend Framework**| Next.js | `15.0.3 / 16.4` | App Router, server components, and streaming UI |
@@ -41,8 +41,8 @@ This document defines the frozen technology stack, runtime versions, and archite
 ### Why NestJS + Fastify instead of Express?
 Standard Express lacks built-in dependency injection, relies on middleware chaining that easily leaks errors, and has significantly higher HTTP overhead. NestJS provides strict module boundaries (`AuthModule`, `TenancyModule`, `AssessmentsModule`), while Fastify delivers 2x higher request throughput and native WebSocket support for candidate terminal streaming.
 
-### Why Drizzle ORM instead of Prisma?
-Prisma requires an external binary query engine (`prisma-query-engine`) that adds 50MB+ to container images and obscures SQL generation. Drizzle is lightweight, outputs zero-overhead raw SQL, and makes it trivial to inject `set_config('app.org_id', $1, true)` into PostgreSQL transactions for RLS enforcement.
+### Why Kysely instead of Prisma or Drizzle?
+Prisma requires an external binary query engine (`prisma-query-engine`) that adds 50MB+ to container images, manages its own connections and obscures SQL generation, which fights per-transaction `set_config('app.org_id', $1, true)` for RLS enforcement. Drizzle was the original choice but owns the schema definition, which conflicts with the SQL migrations owned by `packages/contracts`, and it was never adopted. Kysely is a typed query builder with no schema ownership: it runs on the `pg` client that `withOrg` already prepared, so RLS is unchanged, and its types are generated from the migrations. See [ADR 0011](/docs/adr/0011-kysely-data-access).
 
 ### Why Sysbox instead of Firecracker or gVisor?
 1. **Firecracker**: MicroVMs provide stellar isolation, but provisioning nested Docker environments inside a Firecracker microVM takes over 35 seconds and requires nested virtualization flags not available on all cloud instances.
@@ -54,3 +54,6 @@ Fumadocs is built natively on Next.js App Router and Turbopack. It provides:
 - First-class MDX compilation with automated Table of Contents and frontmatter validation.
 - Built-in full-text search without external Algolia dependencies.
 - Native integration with our role-based authentication proxy.
+
+### Web dependency added in Stream 6: `prism-react-renderer` 2.4.1 (S1B-T06-2)
+Syntax highlighting for the evidence/diff viewer. MIT licence, peer dependency `react >=16` (the app uses React 19), two transitive packages (`@types/prismjs`, types only, and `clsx`, which was already in the lockfile), no install scripts. It returns tokens that React renders as text, so it never injects HTML (candidate code is untrusted input). Chosen over a Monaco editor to avoid a heavyweight worker-based dependency for a read-only viewer. Pinned to an exact version.

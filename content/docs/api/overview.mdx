@@ -122,6 +122,8 @@ Content-Type: application/json
 }
 ```
 
+Suspending an organization, in one transaction, sets its status, destroys its running workspaces (`queued`, `provisioning`, `not_connected`, `connected`, `disconnected`), and revokes the assignments tied to them (assignments already `submitted`, `expired` or `revoked` are left as they are). One `org.status_changed` audit event records the counts (`endedWorkspaces`, `revokedAssignments`, `affectedUsers`). After the commit, every session of every user in the organization is revoked in parallel batches. If session revocation fails, the suspension still holds, because the session guard rejects every request from a suspended organization. Reinstating only changes the status; destroyed workspaces and revoked assignments are not restored.
+
 ```http
 GET /api/v1/admin/organizations?page=1&pageSize=20&search=acme&status=suspended
 ```
@@ -162,6 +164,92 @@ Content-Type: application/json
   "assessmentId": "asm_1a2b3c4d"
 }
 ```
+
+```http
+GET /api/v1/company/candidates?search=ada&assessmentId=<uuid>&status=in_progress&page=1&limit=25
+```
+
+Paginated candidate list for the caller's organization. `search` matches name or email (wildcards matched literally; `q` is an alias). `assessmentId` keeps only candidates assigned to that assessment. `status` is one of `all`, `active`, `invited`, `in_progress`, `submitted`, `expired`; anything else, or a malformed `assessmentId`, returns `422`. The assignment-level statuses match a candidate who has an assignment in that state (inside the chosen assessment when `assessmentId` is given): `invited` = `invited`, `window_not_open` or `ready` (and, without an assessment, also accounts that never activated); `in_progress` = `in_progress` or `disconnected`; `submitted`; `expired`. `active` is the account status.
+
+```http
+POST /api/v1/company/candidates/bulk-preview?assessment_id=<uuid>
+POST /api/v1/company/candidates/bulk-confirm?assessment_id=<uuid>
+Content-Type: text/csv
+```
+
+Two-step bulk invitation import from a CSV (`text/csv` or `application/csv`, up to 1 MB, streamed). Headers are matched case-insensitively and may be `Email` / `Candidate Email` and `Name` / `Full Name` (a leading Windows BOM is ignored); an optional `assessment_id` column overrides the `assessment_id` query default per row. At most 5,000 valid rows per upload (`422 BULK_TOO_MANY_ROWS`).
+
+`bulk-preview` writes nothing. It reports `{ validRows, errorRows: [{ rowNumber, email, error, code }], totalRows, errorRowsTruncated, quota }`. A row fails for: missing or over-long name, malformed email, an email repeated in the file (`DUPLICATE_EMAIL_IN_FILE`), a missing, malformed, unknown or unpublished assessment, an email that belongs to a non-candidate account, or a candidate already assigned to that assessment (`CANDIDATE_ALREADY_ASSIGNED`). `quota` shows `pendingInvites`, `pendingLimit` (`max_candidates` x `pending_invite_multiplier`), `wouldAdd` and whether the upload fits (BR-06).
+
+`bulk-confirm` takes the same file and re-validates it (nothing from the preview is stored or trusted), then inserts every valid row in a **single transaction**: new accounts, one assignment per row with a single-use 32-byte token (only its SHA-256 hash is stored, valid 7 days), and one `candidate.bulk_assigned` audit event for the batch. The cap is applied to the whole batch: if the upload would exceed the pending-invite limit (`403 PENDING_INVITE_CAP_EXCEEDED`) or the candidate cap is used up (`403 CANDIDATE_CAP_EXCEEDED`), nothing is imported. A concurrent import of the same people returns `409 BULK_IMPORT_CONFLICT`. Invitation emails are sent after the commit (`invitations.queued`); a failed email is logged and the candidate can be re-invited with resend-invite. Importing the same file twice creates nothing the second time. Candidates are not counted against the cap until they start (BR-06). The older single-step `POST /company/candidates/bulk` remains for existing callers.
+
+```http
+DELETE /api/v1/company/candidates/:id
+```
+
+Soft-deletes a candidate (`status = 'deleted'`, `deleted_at` set) in one transaction. Unstarted invitations (`invited`, `window_not_open`, `ready`) are revoked and their invite token cleared, so the old link stops working and the invitation no longer counts toward the pending-invite limit (BR-06). A candidate who has already submitted an assessment cannot be deleted: the call returns `400` with code `CANDIDATE_HAS_SUBMISSION`. The audit event `candidate.deleted` records how many invitations were revoked.
+
+### Assessment Submissions Overview (S1B-T06-1)
+```http
+GET /api/v1/company/assessments/:id/submissions?status=submitted,expired&search=jane&page=1&pageSize=20
+```
+Company admins only. Lists the assignments of one assessment (not only submitted ones) with their **persisted** state: candidate name and email, assignment status (`invited`, `window_not_open`, `ready`, `in_progress`, `disconnected`, `submitted`, `expired`, `revoked`), invited, first-connect, deadline and submitted timestamps, derived time used, and the workspace's last activity. Query: `status` (comma-separated), `search` (name or email, matched literally), `reviewState`, `minScore`, `maxScore`, `page`, `pageSize` (max 100). The response also carries `statusCounts` for the whole assessment. Unknown query parameters (misspellings, wrong case, a client-supplied `orgId`) are rejected with `422` `VALIDATION_ERROR`; they are never silently ignored. An assessment from another organization returns `404` (BR-01). The response lists candidate names and emails and is sent with `Cache-Control: no-store`.
+
+Each row also carries the persisted **human review** (`app.reviews`) as `review`: `{ state, overallScore, currentVersion, releasedAt, flags }`, or `null` when nobody has reviewed that submission yet. `state` is the review lifecycle (`human_review`, `finalized`; the agent states `pending`, `agents_running`, `agent_report_ready` exist in the schema but nothing writes them yet), `overallScore` is the reviewer's score, and `releasedAt` says whether the candidate can see the result (BR-21). Agent scores and **red flags are not persisted yet**, so `flags` is always empty and `reviewSource` is `"human_only"`; the web table shows "Not available" for flags instead of "No flags".
+
+Filters on the persisted review: `reviewState`, `minScore` and `maxScore` (0 to 100, `minScore` must not exceed `maxScore`). An assignment without a review never matches them; the per-status counts ignore every filter. The red-flag filter `flagged` needs data nobody persists, so it is rejected with `422` and code `REVIEW_FILTER_UNAVAILABLE` rather than ignored (an empty value such as `?flagged=` counts as absent). The endpoint reads `app.reviews` (migration `0023`). The web BFF can serve clearly labelled sample data (`source: "fixture"`, header `x-hellosmart-mock: true`) in development only (`ENABLE_DEV_MOCKS=true`, never in production); the API never returns fixture data.
+
+### Human Score Override and Review History (S1B-T06-3)
+```http
+POST /api/v1/company/submissions/:id/override
+Idempotency-Key: <uuid>
+Content-Type: application/json
+
+{
+  "expected_version": 0,
+  "item_scores": [{ "rubric_item_id": "<uuid>", "score": 4 }],
+  "overall_score": 82.5,
+  "justification": "At least 20 characters explaining the change.",
+  "notes": "Optional reviewer notes."
+}
+```
+Company admins only. `:id` is the **submission** id. The first override creates the review; every override appends an immutable version to `app.review_versions` with the editor, the full snapshot, a `changes_json` diff and the justification, updates `app.reviews`, and writes the `review.overridden` audit event (plus `review.finalized` the first time) in the same transaction (BR-31). `expected_version` is the version the client last saw (`0` when none exists): a mismatch returns `409` `REVIEW_VERSION_CONFLICT`, and two concurrent edits never both succeed. A justification under 20 characters (after trimming), an unknown field, a score outside 1-5 (items) or 0-100 (overall), or a request that changes nothing (`422` `NO_CHANGES`) is rejected. A submission of another organization returns `404` (BR-01). Responds `201` with the new `review` state and `version`.
+
+```http
+GET /api/v1/company/submissions/:id/review
+```
+Returns `{ submissionId, review, versions }`: the current review (`null` before the first override) and every version, newest first, with the editor's name and email, timestamp, justification and `changes`. Sent with `Cache-Control: no-store`.
+
+The rubric has no persisted source yet, so `item_scores` identify dimensions by `rubric_item_id` only and may be empty; the overall score and notes can always be overridden.
+
+### Submission Evaluation View (S1B-T06-2)
+The company page `/company/submissions/:id` (`:id` is the **submission** id) shows the agent rubric scorecard next to the candidate's code, with clickable evidence citations that jump to and highlight the cited lines, and the AI copilot transcript in a drawer. It reads one web route:
+
+```http
+GET /api/company/submissions/:id/evaluation            -> 404 EVALUATION_NOT_AVAILABLE
+GET /api/company/submissions/:id/evaluation?source=fixture
+```
+Both require a validated `company_admin` session (`401` / `403` otherwise). There is **no API endpoint yet** for agent scores, citations, the immutable code snapshot, diffs or the AI transcript (they need the review model, rubric source, snapshot and diff contracts: decisions D8-D15 in the Stream 6 request), so the default response is an honest `404` and the page says "Agent evaluation is not available yet". `?source=fixture` returns clearly labelled **sample data** (`source: "fixture"`, header `x-hellosmart-mock: true`) only outside production, only when `ENABLE_DEV_MOCKS=true`, and only for a validated `company_admin` session; the two are never mixed, and unknown query parameters are a `422`. Responses are `Cache-Control: no-store`.
+
+The human review on that page is real: it uses the override, history and release endpoints above. Evidence that cannot be placed reliably is reported instead of guessed: a citation whose lines no longer exist, whose file is missing, or that was made against another snapshot is shown with a notice and file context, with nothing highlighted. Candidate code, commits and chat are untrusted input and are rendered as text only (BR-18). The viewer renders at most 2,000 lines of a file at once (centred on the cited line) and offers the whole file on request.
+
+### Results Release and Candidate Results (S1B-T06-4)
+```http
+PATCH /api/v1/company/submissions/:id/release
+Idempotency-Key: <uuid>
+Content-Type: application/json
+
+{ "released": true }
+```
+Company admins only; `:id` is the **submission** id. Results are **not released by default** (BR-21). `released: true` sets `released_at` and `released_by`, `released: false` withdraws the release. Only a `finalized` review can be released: otherwise `409` `REVIEW_NOT_FINALIZED`. Setting the state a review already has is a no-op (no timestamp rewrite, no audit event). A change writes `review.released` or `review.unreleased` in the same transaction (BR-31). Responds with `{ submissionId, reviewId, released, releasedAt, currentVersion }`.
+
+```http
+GET /api/v1/candidate/assignments/:id/results
+```
+Candidate sessions only; `:id` is the **assignment** id. The candidate and organization come from the session.
+- Not the caller's own assignment, or unknown: `404` `ASSIGNMENT_NOT_FOUND` (BR-01).
+- Own assignment, not released (no review yet, not finalized, or not released): `403`, RFC 9457, `title: "Forbidden"`, `detail: "Results have not been released by the hiring team"`, `code: "RESULTS_NOT_RELEASED"`. No score information is returned.
+- Released: `{ assignmentId, releasedAt, overallScore, dimensions: [{ rubricItemId, score }], feedback }`. This is a whitelist: agent rationales, evidence, flags, transcripts, the reviewer's identity and the justification are never included. `feedback` is the reviewer's notes, so the override dialog tells reviewers that notes become visible on release. Editing a released result changes what the candidate sees next (the current version is always read). Rubric level anchors are not included because the rubric has no persisted source yet. Sent with `Cache-Control: no-store`.
 
 ### Candidate Workspace Connection
 ```http
@@ -211,11 +299,12 @@ HelloSmart processes incoming asynchronous webhooks idempotently:
 - `GET /api/v1/admin/promo-codes`: List active and scheduled promotional discount codes.
 - `POST /api/v1/admin/promo-codes`: Create percentage or fixed monetary promotional codes.
 - `GET /api/v1/quotes/{token}`: Customer review screen endpoint. Retrieves immutable quote snapshot, line items, and GST breakdown using the secure public access token (PHS-I128 / SP-010).
-- `POST /api/v1/quotes/{token}/accept`: One-click customer quote acceptance. Atomically and idempotently accepts an issued quote, persists customer acceptance evidence and an append-only audit event in `audit.events` (PHS-I128 / SP-010).
+- `POST /api/v1/quotes/{token}/accept`: One-click customer quote acceptance. Atomically and idempotently accepts an issued quote, persists customer acceptance evidence and an append-only audit event in `audit.events` (PHS-I128 / SP-010). The signer's IP (`accepted_by_ip`) is recorded only when the Next.js BFF sends it with the shared secret (`X-HS-Client-IP` plus `X-HS-BFF-Secret`, matching `BFF_INTERNAL_SECRET` on both the API and the web app, minimum 32 characters). A forwarded IP without a valid secret is ignored, and loopback addresses are never stored; the value is then `null`. The BFF takes the rightmost `X-Forwarded-For` entry, which assumes exactly one trusted proxy in front of it. After the acceptance commits, Platform Admin is emailed a summary (`quote_accepted_admin`: quote number, customer, total, time, link to the admin quotes page; never the public token or the signer IP). Recipients are `SALES_NOTIFICATION_EMAIL` (comma-separated) when set, otherwise every active platform admin. The email is best effort: a failure is logged and never fails or reverses the acceptance.
+- `POST /api/v1/quotes/{token}/request-extension`: "Request Extension" on an expired quotation (SP-010). Public and token-authenticated, rate limited to 10 requests per minute in production. Body: optional `message` (max 500 characters; unknown fields are rejected with `422`). Only expired quotes qualify: a still-valid quote returns `409 QUOTE_NOT_EXPIRED`, an accepted one `409 QUOTE_ALREADY_ACCEPTED`, an unknown token `404`. Response `{ requested: true, alreadyRequested }`. One request per quote per day (claimed atomically in Redis): a repeat returns `alreadyRequested: true` and sends nothing. A new request is recorded as a `quote.extension_requested` audit event and Platform Admin is emailed (`quote_extension_requested`; best effort).
 
 ### Audit & Tamper-Evident Ledger (AD-027, BR-31, BR-32)
 - `GET /api/v1/admin/audit`: List global audit events with pagination, search, actor, entity, and date filters (Platform Admin only). `start_date` / `end_date` must be valid ISO 8601 dates or datetimes (e.g. `2026-11-01`, `2026-11-01T10:00:00Z`); anything else returns `422`. `entity`, `action` and `search` match literally: `%`, `_` and `\` are not treated as wildcards.
-- `POST /api/v1/admin/audit/verify-chain`: Verify internal SHA-256 hash-chain continuity of the audit ledger from genesis to head (Platform Admin only).
+- `POST /api/v1/admin/audit/verify-chain`: Verify internal SHA-256 hash-chain continuity of the audit ledger from genesis to head (Platform Admin only). The ledger is read in id-ordered batches of 5,000 rows inside one read-only repeatable-read snapshot and the previous hash is carried across batches, so memory stays flat however long the ledger grows (measured on 60,000 events: about 4 MB of live heap, against 22 to 49 MB and growing with the ledger before; about 0.45 s). The verdict, event ids and counts do not depend on the batch size.
 
 ### Platform AI Keys Vault & Credit Allocations (AD-023, AD-024, BR-16, BR-17)
 - `GET /api/v1/admin/ai-keys`: List platform-managed AI provider keys with masked key strings and allocation counts (Platform Admin only; raw secrets are never returned).
@@ -234,7 +323,7 @@ HelloSmart processes incoming asynchronous webhooks idempotently:
 ### Workspaces Live Monitoring & Emergency Kill-Switch (AD-018, AD-019, BR-22, BR-23)
 - `GET /api/v1/admin/workspaces`: List candidate workspaces across all tenant organizations with status/mode/org filters, search, idle duration, and tenant credit allocation context (Platform Admin only).
 - `GET /api/v1/admin/workspaces/{id}`: Retrieve detailed workspace session state, recent activity event signals, and tenant credit line context (Platform Admin only).
-- `POST /api/v1/admin/workspaces/{id}/destroy`: Super Admin emergency kill-switch mutation. Atomically transitions workspace to `destroyed`, revokes candidate assignment write tokens, records disconnect activity, and writes an immutable SHA-256 hash-chained audit record in `audit.events`. Explicitly indicates MMP limitations (hypervisor container teardown and candidate notifications are unconnected in MMP; candidate session disconnects on next ping).
+- `POST /api/v1/admin/workspaces/{id}/destroy`: Super Admin emergency kill-switch (BR-22). Body: `reason` (5 to 500 characters, required) and optional `destroyWithoutSnapshot` (default `false`). Order of effects: (1) a snapshot of the candidate's work is verified in storage through the snapshot port; if none can be confirmed the call returns `409 SNAPSHOT_UNAVAILABLE` and changes nothing, unless `destroyWithoutSnapshot` is set, which is recorded in the audit event; (2) in one transaction the workspace is closed (`ended`), the assignment's write access is revoked, a disconnect activity is recorded and the `workspace.emergency_destroyed` audit event is written; (3) the runtime is stopped through the destroyer port; (4) the candidate is emailed (`workspace_destroyed`, name only, never the admin's reason) and signed out of every session, both best effort; (5) the workspace becomes `destroyed` and a `workspace.emergency_destroy_completed` audit event records the outcomes. If the runtime cannot be stopped (no orchestrator is connected yet) the response `status` is `ended`, `limitations.runtimeTerminated` is `false`, and the workspace reaper finishes the teardown later (an `ended` workspace with a revoked assignment is one of its candidates). The response `limitations` reports honestly what happened: `runtimeTerminated`, `snapshotSaved`, `candidateNotified` and a `notice`.
 
 ### Timing, disconnect, and accommodations (BR-08, BR-09, CO-031)
 - `GET /api/v1/candidate/assessment/timing?assignmentId=`: Server clock snapshot `{ deadlineAtUtc, remainingSeconds, isExpired }` plus the IANA timezone stored beside the UTC deadline.

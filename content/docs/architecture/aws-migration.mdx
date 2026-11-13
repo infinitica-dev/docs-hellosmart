@@ -428,7 +428,7 @@ flowchart LR
 
 ### Traffic Cutover & Circuit Breaker Thresholds
 
-1. **Green Provisioning & Expand Migration:** Backward-compatible Drizzle/PostgreSQL expand migrations run prior to image swap; CodeDeploy spins up the **Green** ECS Task Set cleanly against the existing schema.
+1. **Green Provisioning & Expand Migration:** Backward-compatible PostgreSQL expand migrations run prior to image swap; CodeDeploy spins up the **Green** ECS Task Set cleanly against the existing schema.
 2. **Pre-Shift Validation (`:8443`):** Internal synthetic checks verify `/api/v1/health/ready`, `/api/v1/health/live`, PostgreSQL Row-Level Security probes, OpenAPI integrity, and SSR page rendering on the test listener before any live customer sees Green.
 3. **Canary / Linear Shift (`:443`):** CodeDeploy routes **10% traffic for 5 minutes**, expands to **50%**, and completes at **100%**.
 4. **Automatic Circuit Breaker Rollback:** If CloudWatch detects **ALB HTTP 5XX greater than 1%**, **p95 API latency above 500 ms**, or **any unhealthy ECS task**, CodeDeploy reverts **100% of traffic to Blue in seconds** without rebuilding or re-deploying.
