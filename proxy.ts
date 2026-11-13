@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isMarkdownPreferred, rewritePath } from 'fumadocs-core/negotiation';
 import { docsContentRoute, docsRoute } from '@/lib/shared';
-import { AUTH_COOKIE_NAME, TEAM_ROLES, TeamRole } from '@/lib/auth';
+import { AUTH_COOKIE_NAME, TEAM_ROLES, TeamRole, isPathAllowedForRole } from '@/lib/auth';
 
 const { rewrite: rewriteDocs } = rewritePath(
   `${docsRoute}{/*path}`,
@@ -15,7 +15,7 @@ const { rewrite: rewriteSuffix } = rewritePath(
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 1. Allow public routes without authentication
+  // 1. Always-public routes — no auth required
   const isPublic =
     pathname === '/' ||
     pathname.startsWith('/_next') ||
@@ -23,22 +23,32 @@ export default function proxy(request: NextRequest) {
     pathname === '/unlock' ||
     pathname === '/favicon.ico' ||
     pathname === '/robots.txt' ||
-    pathname === '/sitemap.xml';
+    pathname === '/sitemap.xml' ||
+    pathname.startsWith('/og/');   // OG image generation
 
   if (!isPublic) {
-    const roleCookie = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-    const isValid = roleCookie && TEAM_ROLES[roleCookie as TeamRole];
+    const roleCookie = request.cookies.get(AUTH_COOKIE_NAME)?.value as TeamRole | undefined;
+    const roleConf = roleCookie ? TEAM_ROLES[roleCookie] : null;
 
-    if (!isValid) {
+    // ── 1a. Not authenticated → redirect to unlock ──────────────────────────
+    if (!roleConf) {
       const unlockUrl = new URL('/unlock', request.url);
-      if (pathname !== '/' && !pathname.startsWith('/api/')) {
+      if (!pathname.startsWith('/api/')) {
         unlockUrl.searchParams.set('returnTo', pathname);
       }
       return NextResponse.redirect(unlockUrl);
     }
+
+    // ── 1b. Authenticated but path is out of role scope → redirect to their landing ──
+    if (!isPathAllowedForRole(pathname, roleCookie as TeamRole)) {
+      const landingUrl = new URL(roleConf.defaultRedirect, request.url);
+      // Attach a flag so the UI can show a "restricted" toast
+      landingUrl.searchParams.set('blocked', '1');
+      return NextResponse.redirect(landingUrl);
+    }
   }
 
-  // 2. Fumadocs Content Negotiation
+  // 2. Fumadocs Content Negotiation (Markdown preferred)
   const result = rewriteSuffix(pathname);
   if (result) {
     return NextResponse.rewrite(new URL(result, request.nextUrl));
@@ -55,3 +65,4 @@ export default function proxy(request: NextRequest) {
 
   return NextResponse.next();
 }
+

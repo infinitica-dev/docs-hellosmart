@@ -5,7 +5,7 @@ import { AUTH_COOKIE_NAME, TEAM_ROLES, TeamRole } from '@/lib/auth';
 import { LogOut, Shield } from 'lucide-react';
 
 export function UserSessionSidebar() {
-  const [currentRole, setCurrentRole] = useState<TeamRole>('sde');
+  const [currentRole, setCurrentRole] = useState<TeamRole>('master');
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
