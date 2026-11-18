@@ -1,0 +1,81 @@
+---
+title: "Knowledge Base Release History"
+description: "Chronological log of versioned Knowledge Base releases, milestone change summaries, and architectural evolution."
+---
+
+<RoleBadge roles={["mgmt", "sde", "ai", "qa"]} />
+
+# Knowledge Base Version Release History
+
+This document chronicles the official versioned releases of the **HelloSmart Product & Engineering Knowledge Base**. Every release represents a consolidated, verified snapshot of the platform's architecture, functional specifications, and implementation guidelines published by **Tino**.
+
+---
+
+## Release Milestones at a Glance
+
+| Version | Release Date | Milestone Focus | Primary Lead Authors | Status |
+|---|---|---|---|---|
+| **`v0.3.0`** | **November 18, 2026** | **Sprint 2: Architecture & Governance Consolidation** | Tino, Vishal V, Prithivi, QA Team | **Current Published** |
+| **`v0.2.0`** | November 11, 2026 | Sprint 1: Multi-Tenancy, RLS & Sysbox Sandboxing | Tino, Vishal V | Archived |
+| **`v0.1.0`** | October 25, 2026 | Sprint 0: Foundation Product Architecture & BRD | Tino | Archived |
+
+---
+
+## Version 0.3.0 (Sprint 2 Milestone) — November 18, 2026
+
+**Theme**: Collaborative Documentation Governance, Task Template Sector Taxonomy, Candidate 30s Autosave Engine, Standalone AI Proxy Gateway, and Multi-Agent Evaluator Pipeline.
+
+### 1. Collaborative Governance & Workflows
+- **Knowledge Base Governance Framework**: Established the centralized documentation governance model designating **Tino** as Primary Owner and Release Coordinator, with **Vishal V** (Backend/DB) and **Prithivi** (AI Systems/Proxy) owning domain-specific content.
+- **Collaborative PR Workflow**: Introduced contributor guidelines (`CONTRIBUTING.md`), structured PR templates (`.github/pull_request_template.md`), branch naming standards (`docs/<lead>-<topic>`), and a 4-hour review SLA.
+- **Documentation Drift Protection**: Formalized the requirement to update documentation concurrently with code changes in the monorepo (`infinitica-org/hellosmart`).
+
+### 2. Task Template Sector Taxonomy
+- **Multi-Industry Blueprint System**: Documented the two-dimensional taxonomy model combining **Technical Sectors** (Software Development, DevOps, Data Science, QA Automation, Cybersecurity) across **Target Industries** (IT & Cloud Services, FinTech, Healthcare, E-Commerce, Manufacturing, Telecommunications).
+- **Template Manifest Architecture**: Detailed the structure of immutable template blueprints (`TemplateVersion`), environment slots, seed repositories, and privacy boundaries ensuring templates are strictly company-private (BR-02).
+
+### 3. Candidate 30s Autosave & State Restoration Engine
+- **30-Second RPO Autosave**: Documented the continuous state persistence engine (`packages/contracts/src/autosave.ts`) capturing dirty editor files, Git working tree diffs, terminal history buffers, and chat transcripts.
+- **Fullscreen Anti-Cheat Disconnect (BR-10)**: Documented the client-side Fullscreen API detection that transitions sessions to `disconnected` upon ESC exit, logging telemetry events and preventing blind cheating.
+- **Disconnect Countdown Continuation (BR-09)**: Detailed the server-enforced countdown timer that continues ticking during candidate disconnects (`pause_timer_on_disconnect` defaults to `false`).
+- **Snapshot State Restoration (BR-11)**: Documented seamless candidate session resumption from S3-backed workspace snapshots.
+
+### 4. Standalone AI Proxy Gateway (:4000)
+- **Zero-Knowledge Architecture**: Documented the standalone Fastify gateway operating on port 4000 (`services/ai-proxy`), mediating all LLM traffic for candidate workspaces.
+- **Token Quotas & Dollar Caps (BR-15)**: Documented sliding-window rate limiting in Redis and the two-tier spend cap policy (`AiProxySpendCapPolicy`): candidate warning at 80% and hard block with RFC 7807 `429 Too Many Requests` at 100%.
+- **OpenRouter & BYOK Integration**: Documented decrypted provider key resolution from AWS KMS (`ProviderKey`, BR-16) and platform key allocation tracking (BR-17).
+
+### 5. Multi-Agent Reviewer Pipeline
+- **Specialized Evaluator Personas**: Documented the 5 autonomous scoring agents in `services/reviewer`:
+  1. **Archie**: Architecture, system design, and modularity.
+  2. **Logic**: Core implementation, algorithm correctness, and edge cases.
+  3. **Synergy**: Version control discipline, Git hygiene, and commit structure.
+  4. **Shield**: Security invariants, dependency vulnerabilities, and input sanitization.
+  5. **Omni**: Aggregator arbiter synthesizing dimensional scores and detecting evaluator variance.
+- **Mandatory Evidence Citations (BR-19)**: Enforced that every score must cite concrete code evidence (`filePath`, `startLine`, `endLine`, `codeSnippet`, and `rationale`).
+- **Human-in-the-Loop Overrides (BR-20, BR-21)**: Documented immutable review versioning (`ReviewVersion`) and company-controlled result release toggles.
+
+### 6. AWS Staging & Testing Infrastructure
+- **ECS Fargate Deployment**: Documented the multi-tier staging infrastructure deployed via Terraform in AWS `eu-west-1`, hosting `hs-api`, `hs-web`, and `hs-ai-proxy` behind an Application Load Balancer (`staging.hellosmart.ai`).
+- **Autonomous Testing Protocols**: Published Developer Autonomous Testing (DAT) and QA Autonomous Testing (QAT) SOPs enabling decoupled, self-sufficient testing using zero-wait Prism mock servers.
+
+---
+
+## Version 0.2.0 (Sprint 1 Milestone) — November 11, 2026
+
+**Theme**: Multi-Tenancy Architecture, PostgreSQL Row-Level Security, and Sandboxed Container Orchestration.
+
+- **Strict Multi-Tenancy (BR-01)**: Documented database isolation via PostgreSQL 16 Row-Level Security (RLS) policies enforcing `app.current_org_id()`.
+- **Sysbox Workspace Orchestration**: Published architecture specs for sandboxed Docker-in-Docker container runtimes isolating candidate development environments.
+- **33 Inviolable Business Rules**: Codified the core platform invariants (BR-01 through BR-33) governing access, security, AI controls, and candidate privacy.
+- **OpenAPI 3.1 Contract Suite**: Published REST API endpoints for candidate management, assessments, and workspace lifecycle.
+
+---
+
+## Version 0.1.0 (Sprint 0 Baseline) — October 25, 2026
+
+**Theme**: Platform Inception, Business Requirements Document, and Engineering Standards.
+
+- **BRD Baseline**: Formatted and indexed all 150 business requirements across 6 functional pillars (Company, Candidate, Admin, Platform, Non-Functional, Expansion).
+- **Core Product Architecture**: Documented the modular monolith paradigm, technology stack selections, and initial domain models.
+- **Role-Oriented Playbooks**: Established foundational engineering playbooks for SDE, AI Engineer, QA, and Management roles.

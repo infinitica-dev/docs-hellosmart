@@ -1,54 +1,118 @@
 ---
 title: "AI Proxy Gateway Architecture"
-description: "Zero-knowledge AI egress gateway, session token verification, sliding-window token caps, and provider key vault resolution."
+description: "Zero-knowledge AI egress gateway, session token verification, sliding-window token caps, OpenRouter relay, and provider key vault resolution."
 ---
 
 <RoleBadge roles={["sde", "ai"]} />
 
 # AI Proxy Gateway Architecture
 
-The **HelloSmart AI Proxy Gateway** (port 4000) is the sole sanctioned egress point for all artificial intelligence calls originating from candidate workspaces and virtual assistant machines (BR-13, BR-14, BR-15).
+The **HelloSmart AI Proxy Gateway** (running as a dedicated service on port 4000) is the sole sanctioned egress point for all artificial intelligence calls originating from candidate workspaces and virtual assistant machines (BR-13, BR-14, BR-15, BR-16, BR-17).
 
 ---
 
 ## 1. Gateway Security Invariants
 
-1. **Short-Lived Workspace Session Token (BR-13)**: Workspaces receive a 15-minute rotating JWT signed by the control plane. They never hold real provider keys.
-2. **AI OFF Enforcement (BR-14)**: When an assessment disables AI tools, the gateway drops requests with `403 Forbidden`, and container iptables firewalls drop outbound traffic to external LLM provider endpoints.
+```mermaid
+flowchart LR
+    WS["Candidate Workspace<br/>(OpenVSCode Copilot)"]
+    PROXY["AI Proxy Gateway (:4000)<br/>Fastify + OpenRouter Relay"]
+    REDIS[("Redis 7<br/>Sliding-Window RPM & Spend Caps")]
+    VAULT[("AWS KMS / Vault<br/>Encrypted Provider Keys")]
+    LLM["External LLMs<br/>(Anthropic, OpenAI, Meta)"]
+    DB[("PostgreSQL<br/>app.ai_messages")]
+
+    WS -- "POST /v1/chat/completions<br/>(Short-lived JWT)" --> PROXY
+    PROXY <--> REDIS
+    PROXY <--> VAULT
+    PROXY -- "Forwarded Prompt" --> LLM
+    LLM -- "SSE Stream" --> PROXY
+    PROXY -- "Audit & Token Cost" --> DB
+    PROXY -- "Streamed Chunks" --> WS
+```
+
+### Inviolable Business Invariants
+
+1. **Short-Lived Workspace Session Token (BR-13)**: Workspaces receive a 15-minute rotating JWT signed by the control plane containing `workspace_id`, `org_id`, and `assessment_id`. Workspaces **never receive real provider API keys**.
+2. **AI OFF Enforcement (BR-14)**: When an assessment disables AI tools (`ai_policy.enabled = false`), the gateway rejects requests with `403 Forbidden`, and container iptables firewalls drop outbound traffic to external LLM provider endpoints.
 3. **Sliding-Window Rate Limiting (BR-15)**: Requests are constrained to an RPM limit (default 30 RPM) using Redis sorted sets.
-4. **Token & Dollar Budget Caps (BR-15)**: Every token consumed is tracked against session limits ($2.00 default for Short tasks). At 80%, a warning banner is delivered to the candidate; at 100%, requests are blocked with RFC 7807 `429 Too Many Requests`.
-5. **Prompt/Response Telemetry (BR-18)**: Complete transcripts are persisted to `app.ai_messages` for automated reviewer agent analysis.
+4. **Token & Dollar Budget Caps (BR-15)**: Every input and output token is tracked against session spend limits ($2.00 default for Short tasks). At 80%, a warning banner is delivered to the candidate; at 100%, requests are blocked with RFC 7807 `429 Too Many Requests`.
+5. **BYOK Key Encryption at Rest (BR-16)**: Customer-provided LLM keys (`ProviderKey`) are encrypted via AWS KMS envelopes and decrypted only in ephemeral memory inside the proxy. Full keys are never returned over the API.
+6. **Platform Key Allocation (BR-17)**: When an organization does not supply BYOK keys, Platform Admins can manually allocate a capped platform key (`PlatformKeyAllocation`) for Chat workspaces.
+7. **Prompt/Response Telemetry (BR-18)**: Complete transcripts, token counts, model identifiers, and latency metrics are persisted to `app.ai_messages` for automated reviewer agent analysis.
 
 ---
 
-## 2. Gateway Request Flow
+## 2. Spend Cap Policy Specification (`@hs/contracts/ai-proxy`)
+
+The proxy enforces budget control using the `AiProxySpendCapPolicy` contract:
+
+```typescript
+export interface AiProxySpendCapPolicy {
+  assessment_id: string;
+  workspace_id: string;
+  currency: 'USD';
+  cap_dollars: number; // e.g. 2.50
+  warn_threshold_pct: number; // default: 80
+  hard_cap_action: 'warn_then_block' | 'block';
+  rpm_limit: number; // default: 30
+  allowed_models: string[]; // e.g. ['anthropic/claude-3-5-sonnet', 'openai/gpt-4o']
+}
+```
+
+### Spend Cap State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Normal: Spend < 80% of Cap
+    Normal --> Warned: Spend >= 80% of Cap
+    Warned --> Normal: Admin increases cap
+    Warned --> Blocked: Spend >= 100% of Cap
+    Blocked --> Normal: Admin increases cap
+    Blocked --> [*]: Session Ends
+```
+
+- **Normal (`Spend < 80% of Cap`)**: Requests pass without friction. Header `X-HelloSmart-Spend-Remaining` indicates budget.
+- **Warned (`80% of Cap <= Spend < 100% of Cap`)**: Response includes warning header `X-HelloSmart-Spend-Warning: threshold_reached`. The frontend displays an alert to the candidate.
+- **Blocked (`Spend >= 100% of Cap`)**: Proxy immediately rejects request with HTTP 429:
+  ```json
+  {
+    "type": "https://api.hellosmart.ai/errors/spend-cap-exceeded",
+    "title": "AI Spend Cap Exceeded",
+    "status": 429,
+    "detail": "Workspace AI spend limit of $2.50 has been reached. Consult your assessment coordinator.",
+    "instance": "/v1/chat/completions"
+  }
+  ```
+
+---
+
+## 3. Proxy Request Lifecycle & OpenRouter Relay
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant WS as Workspace IDE (OpenVSCode)
+    participant WS as Workspace IDE Copilot
     participant AP as AI Proxy Gateway (:4000)
-    participant RD as Redis (RPM & Budget Store)
-    participant VT as Vault / AWS KMS
-    participant LLM as External Provider (Anthropic / OpenAI)
+    participant RD as Redis 7 (Cache & Caps)
+    participant KMS as AWS KMS
+    participant OR as OpenRouter / Provider API
     participant DB as Postgres (app.ai_messages)
 
     WS->>AP: POST /v1/chat/completions (Bearer hs_ws_jwt)
-    AP->>AP: Validate JWT signature & expiration
-    AP->>RD: Check sliding-window RPM (< 30)
-    AP->>RD: Check remaining dollar budget
-    alt Budget Exceeded
-        AP-->>WS: 429 Too Many Requests (Token cap reached)
-    else Under Budget
-        AP->>VT: Fetch decrypted provider key in-memory
-        AP->>LLM: Forward chat completions request
-        LLM-->>AP: Stream response chunks (SSE)
-        AP->>DB: Log prompt, completion, tokens & cost
-        AP-->>WS: Stream response to workspace copilot
+    AP->>AP: Verify JWT signature & expiration
+    AP->>RD: Check sliding-window RPM (ZADD & ZCOUNT)
+    AP->>RD: Check accumulated spend against cap
+    alt Cap Exceeded
+        AP-->>WS: 429 Too Many Requests (Spend cap reached)
+    else Cap Valid
+        AP->>KMS: Decrypt organization provider key (or platform key)
+        AP->>OR: Stream prompt payload (OpenAI-compatible)
+        loop Response Streaming
+            OR-->>AP: Server-Sent Events (SSE chunks)
+            AP-->>WS: Relay SSE chunks to copilot
+        end
+        AP->>RD: Increment token spend (prompt_tokens + completion_tokens)
+        AP->>DB: Asynchronously persist transcript & cost metadata
     end
 ```
-
----
-
-## 3. OpenAPI Contract Reference
-The AI Proxy exposes a standard OpenAI-compatible interface defined in `packages/contracts/openapi/ai-proxy-v1.yaml` (see [API Overview](/docs/api/overview)).

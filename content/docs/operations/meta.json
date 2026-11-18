@@ -1,10 +1,13 @@
 {
   "title": "Operations & Runbooks",
   "pages": [
+    "knowledge-base-governance",
+    "release-history",
     "branching-and-environments",
     "onboarding",
     "dev-setup",
     "team",
+    "qa-sop",
     "incident-response",
     "observability"
   ]

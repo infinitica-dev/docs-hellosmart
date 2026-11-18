@@ -2,10 +2,13 @@
   "title": "Architecture & Frameworks",
   "pages": [
     "system-architecture",
-    "aws-migration",
-    "task-spec-v1",
+    "template-taxonomy",
+    "candidate-autosave",
     "ai-proxy-gateway",
     "reviewer-pipeline",
+    "aws-staging-infrastructure",
+    "aws-migration",
+    "task-spec-v1",
     "frontend-data-layer",
     "frameworks-and-versions"
   ]

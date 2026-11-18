@@ -1,0 +1,179 @@
+---
+title: "Task Template Sector & Industry Taxonomy"
+description: "Architectural blueprint specification for HelloSmart task templates across technical sectors and commercial industries."
+---
+
+<RoleBadge roles={["sde", "mgmt"]} />
+
+# Task Template Sector & Industry Taxonomy
+
+HelloSmart task assessments are driven by **Task Templates**—immutable, versioned blueprints (`TemplateVersion`) defining realistic engineering scenarios, pre-provisioned Git repositories, environment slots, AI tool policies, and scoring rubrics.
+
+To cater to diverse enterprise hiring requirements, templates are categorized along two orthogonal dimensions: **Technical Sector** (the candidate's functional engineering discipline) and **Target Industry** (the commercial and business domain of the scenario).
+
+---
+
+## 1. Two-Dimensional Taxonomy Matrix
+
+```mermaid
+flowchart TD
+    subgraph Industries["Target Industries (Commercial Verticals)"]
+        IT["Information Technology & Cloud"]
+        FIN["Financial Services & FinTech"]
+        HLT["Healthcare & HealthTech"]
+        ECM["E-Commerce & Retail"]
+        MFG["Manufacturing & Industrial IoT"]
+        TEL["Telecommunications & Networks"]
+    end
+
+    subgraph Sectors["Technical Sectors (Engineering Disciplines)"]
+        SDE["Software Development (Full-Stack, Backend, Frontend)"]
+        DEVOPS["DevOps & Cloud Infrastructure"]
+        DATA["Data Science & Machine Learning"]
+        QA["Quality Assurance & Test Automation"]
+        SEC["Cybersecurity & Application Security"]
+    end
+
+    Industries <-->|Cross-Matrix Evaluation| Sectors
+```
+
+### Supported Technical Sectors
+
+Defined in `@hs/contracts/template-sector`:
+
+| Sector Key | Display Name | Core Assessment Competencies | Typical Workspace Environment |
+|---|---|---|---|
+| `software_development` | Software Development | API design, algorithmic correctness, modular architecture, database migrations, state management | Node.js, TypeScript, Python, Golang, React, Next.js |
+| `devops` | DevOps & Infrastructure | CI/CD pipelines, Dockerfiles, Kubernetes manifests, Terraform IaC, monitoring, log analysis | Docker-in-Docker, Terraform CLI, kubectl, LocalStack |
+| `data_science` | Data Science & ML | Data cleaning, feature engineering, model training, evaluation metrics, pipeline deployment | Jupyter Notebook, Python (Pandas, PyTorch, Scikit-Learn) |
+| `qa_automation` | QA & Test Automation | E2E test suites, API test automation, edge case identification, performance profiling | Playwright, Jest, PyTest, Locust |
+| `cybersecurity` | Cybersecurity | Vulnerability remediation (OWASP Top 10), secrets detection, RBAC hardening, audit trails | Semgrep, Trivy, Burp mock suites |
+
+### Supported Commercial Industries
+
+| Industry Key | Display Name | Scenario Focus & Regulatory Invariants |
+|---|---|---|
+| `it_cloud` | IT & Cloud Services | Multi-tenant SaaS, distributed caches, event-driven architectures, high availability |
+| `fintech` | Financial Services & FinTech | Double-entry ledgers, idempotency, PCI-DSS compliance, currency precision, fraud detection |
+| `healthcare` | Healthcare & HealthTech | HIPAA compliance, anonymization, HL7/FHIR message validation, strict data retention |
+| `ecommerce` | E-Commerce & Retail | Cart checkout flows, inventory locking, catalog indexing, discount calculation engines |
+| `manufacturing` | Manufacturing & Industrial IoT | Sensor telemetry ingestion, time-series anomaly detection, edge computing protocols (MQTT) |
+| `telecom` | Telecommunications | High-throughput packet processing, WebRTC signaling, network routing algorithms |
+
+---
+
+## 2. Inviolable Architectural Invariants
+
+### 1. Template Privacy Boundary (BR-02)
+Templates built for or assigned to a customer company are strictly private:
+- There is **no public template catalog or marketplace** accessible to candidates or other companies.
+- A company may only view and instantiate templates mapped to their organization via the `TemplateAssignment` relation.
+- Violations or cross-tenant leaks are prevented by database Row-Level Security (`app.current_org_id()`).
+
+### 2. Version Pinning & Immutability (BR-03)
+- An assessment pins an exact `TemplateVersion` (e.g., `v1.2.0`).
+- Updating or publishing a new template version never alters or mutates ongoing or published assessments.
+- Published `TemplateVersion` records are strictly immutable.
+
+### 3. No Real Cloud Credentials (BR-33)
+- Candidates are **never provisioned with real AWS, GCP, or Azure credentials**.
+- Infrastructure and cloud scenarios execute against local emulator harnesses such as **LocalStack** or containerized mock endpoints within the Sysbox sandbox.
+
+---
+
+## 3. Template Manifest Specification
+
+The template manifest (`manifest.json`) defines the full declaration required by the workspace orchestrator:
+
+```json
+{
+  "schema_version": "1.0.0",
+  "template_id": "tpl_fintech_sde_ledger_01",
+  "version": "1.0.0",
+  "name": "FinTech Ledger Double-Entry Transaction Engine",
+  "sector": "software_development",
+  "industry": "fintech",
+  "difficulty": "intermediate",
+  "recommended_duration_minutes": 90,
+  "repository": {
+    "url": "git@github.com:infinitica-org/template-fintech-ledger.git",
+    "commit": "a1b2c3d4e5f67890abcdef1234567890abcdef12",
+    "default_branch": "main"
+  },
+  "runtime": {
+    "image": "hellosmart/runtime-node20:v1.2",
+    "memory_mb": 4096,
+    "cpu_cores": 2,
+    "egress_policy": "restricted"
+  },
+  "environment_slots": [
+    {
+      "key": "DATABASE_URL",
+      "description": "Local PostgreSQL 16 connection string",
+      "default_value": "postgres://postgres:postgres@localhost:5432/ledger_dev",
+      "is_secret": false
+    },
+    {
+      "key": "STRIPE_SECRET_KEY",
+      "description": "Mock payment provider key (LocalStack / WireMock)",
+      "default_value": "sk_test_mock_fintech_gateway",
+      "is_secret": true
+    }
+  ],
+  "ai_defaults": {
+    "enabled": true,
+    "allowed_models": ["anthropic/claude-3-5-sonnet", "openai/gpt-4o"],
+    "spend_cap_dollars": 2.50,
+    "rpm_limit": 30
+  },
+  "rubric_items": [
+    {
+      "agent_id": "archie",
+      "weight": 25,
+      "scale": "1-5",
+      "description": "Evaluates transactional safety and ledger double-entry invariants."
+    },
+    {
+      "agent_id": "logic",
+      "weight": 35,
+      "scale": "1-5",
+      "description": "Evaluates idempotent transaction processing and concurrent balance locking."
+    },
+    {
+      "agent_id": "shield",
+      "weight": 20,
+      "scale": "1-5",
+      "description": "Evaluates input validation, race condition vulnerabilities, and ledger tamper protection."
+    },
+    {
+      "agent_id": "synergy",
+      "weight": 20,
+      "scale": "1-5",
+      "description": "Evaluates commit message clarity, branch hygiene, and test harness execution."
+    }
+  ]
+}
+```
+
+---
+
+## 4. Lifecycle from Template to Assessment
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant PA as Platform Admin
+    participant TPL as Template Catalog (Private)
+    participant CA as Company Admin
+    participant ASS as Assessment Instance
+    participant WS as Candidate Workspace
+
+    PA->>TPL: Build, test, and publish TemplateVersion (v1.0.0)
+    PA->>TPL: Assign template to Org A (TemplateAssignment)
+    CA->>TPL: Browse assigned private templates
+    CA->>ASS: Create Assessment (pins v1.0.0)
+    CA->>ASS: Configure AI policy (spend caps, allowed models) & timing
+    CA->>ASS: Execute mandatory Dry-Run (verification pass)
+    CA->>ASS: Publish Assessment & invite candidate
+    WS->>ASS: Provision candidate workspace from pinned snapshot
+```

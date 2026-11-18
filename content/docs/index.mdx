@@ -11,6 +11,38 @@ Welcome to the internal engineering and product documentation for **HelloSmart.a
 
 Candidates solve real problems with AI co-pilots inside sandboxed Sysbox containers. Independent AI reviewer agents score candidate submissions against explicit rubrics with exact evidence citations, while human hiring managers make the final decision.
 
+> [!NOTE]
+> **Knowledge Base Version 0.3.0 (Sprint 2 Milestone)** is live. See the [Release History](/docs/operations/release-history) and [Collaborative Governance Specification](/docs/operations/knowledge-base-governance).
+
+---
+
+## Centralized Knowledge Base Governance & Lead Ownership
+
+The Knowledge Base is the **Single Source of Truth (SSOT)** for product requirements, architecture, schemas, and implementation history. To prevent documentation drift, documentation is managed through a **collaborative PR-based workflow** across all Team Leads:
+
+<Cards>
+  <Card
+    title="Primary Owner: Tino"
+    href="/docs/operations/knowledge-base-governance#2-responsibilities-of-the-primary-owner-tino"
+    description="System Architect & Platform Lead. Owns overall repository health, standards, PR review/merging, and official versioned releases."
+  />
+  <Card
+    title="Backend Lead: Vishal V"
+    href="/docs/operations/knowledge-base-governance#1-governance--ownership-matrix"
+    description="Core Fastify REST API, PostgreSQL 16 schema, Kysely queries, multi-tenancy (BR-01), Task Template taxonomy, and billing."
+  />
+  <Card
+    title="AI Systems Lead: Prithivi"
+    href="/docs/operations/knowledge-base-governance#1-governance--ownership-matrix"
+    description="Standalone AI Proxy Gateway (:4000), token spend caps (BR-15), Multi-Agent Reviewer pipeline (Archie, Logic, Synergy, Shield, Omni)."
+  />
+  <Card
+    title="QA Leads: Thiganth & Raja"
+    href="/docs/operations/qa-sop"
+    description="Developer Autonomous Testing (DAT) and QA Autonomous Testing (QAT) SOPs, zero-wait Prism mock harnesses, and regression test suites."
+  />
+</Cards>
+
 ---
 
 ## Developer Onboarding: Quickstart Guide
@@ -24,34 +56,20 @@ Read **[The Product in 60 Seconds](/docs/knowledge-base/00-start-here)** and the
 Read the **[33 Business Invariants (BR-01 to BR-33)](/docs/roles/managing#4-the-33-inviolable-business-rules-br-01-to-br-33)**. Non-negotiable architectural invariants include:
 - **BR-01 Strict Multi-Tenancy**: Every database query, cache key, and file path is scoped by `org_id`. Cross-tenant reads return 404.
 - **BR-02 Private Templates**: Templates are strictly private to each customer company. No public catalog or cross-company leakage.
+- **BR-10 Fullscreen Enforcement**: Cloud VM assessments require fullscreen; exiting fullscreen disconnects the session immediately.
+- **BR-11 Continuous Autosave**: State is continuously persisted with an RPO of 30 seconds or less.
 - **BR-13 AI Proxy is the Only Path**: Workspaces hold only short-lived session tokens—never real provider API keys.
-- **BR-18 Human in the Loop**: AI scores are evidence citations for a human reviewer. No auto-rejections.
+- **BR-18 & BR-20 Human in the Loop**: AI scores are evidence citations for a human reviewer. No auto-rejections.
 
-### 3. Review System Architecture & Contracts
-- **[System Architecture](/docs/architecture/system-architecture)**: The modular monolith backend, Sysbox workspace container orchestrator, AI Proxy, and Redis BullMQ queues.
-- **[Database Visualization & Schema](/docs/database/db-visualization)**: PostgreSQL 16 schema, Citext case-insensitivity, and Row-Level Security (RLS) policies.
-- **[API Documentation](/docs/api/overview)**: OpenAPI 3.1 REST contracts and shared Zod schemas (`@hs/contracts`).
-- **[Business Requirements Document (BRD)](/docs/brd/overview)**: The complete 150 requirement specifications with individual acceptance criteria.
+### 3. Review Sprint 2 System Architecture & Contracts
+- **[Task Template Sector Taxonomy](/docs/architecture/template-taxonomy)**: Multi-industry blueprint matrix combining technical disciplines with commercial verticals.
+- **[Candidate Autosave & State Restoration](/docs/architecture/candidate-autosave)**: 30-second RPO persistence engine, Git diff capture, and fullscreen disconnect handling.
+- **[AI Proxy Gateway Architecture](/docs/architecture/ai-proxy-gateway)**: Standalone Fastify gateway on port 4000, sliding-window RPM, and spend cap policies.
+- **[Autonomous Reviewer Agent Pipeline](/docs/architecture/reviewer-pipeline)**: Independent reviewer personas (Archie, Logic, Synergy, Shield, Omni) and mandatory evidence citations (BR-19).
+- **[AWS Staging Infrastructure](/docs/architecture/aws-staging-infrastructure)**: ECS Fargate cluster, ALB SSL routing, Amazon RDS Multi-AZ, and S3 evidence vaults.
+- **[Autonomous Testing Protocols (DAT & QAT)](/docs/operations/qa-sop)**: Decoupled testing tracks for developers and QA automation engineers.
 
-### 4. Set Up the Local Workspace
-Start the standard development environment:
-
-```bash
-# 1. Start Docker dependencies (PostgreSQL 16, Redis 7, LocalStack)
-pnpm infra:up
-
-# 2. Run the Prism OpenAPI mock server for rapid local development
-pnpm mock
-
-# 3. Start all services in parallel (Fastify API, Next.js Web, Docs)
-pnpm dev
-
-# 4. Run tests and multi-tenancy validation
-pnpm test
-pnpm test:tenancy
-```
-
-### 5. Review Your Role Playbook
+### 4. Review Your Role Playbook
 Select your team perspective using the top navigation switcher or the links below:
 - **[Software Development Engineer (SDE) Playbook](/docs/roles/sde)**: Fastify API, Next.js portals, container runtime, and definition of done.
 - **[AI & Evaluator Engineering Playbook](/docs/roles/ai)**: Reviewer agent pipelines, rubric evaluation, token quotas, and AI Proxy firewalls.
@@ -66,7 +84,7 @@ Select your team perspective using the top navigation switcher or the links belo
   <Card
     title="Software Development Engineer (SDE)"
     href="/docs/roles/sde"
-    description="Backend NestJS Fastify API, Next.js web portals, Sysbox workspace orchestration, Docker-in-Docker, and Kysely."
+    description="Backend Fastify API, Next.js web portals, Sysbox workspace orchestration, Docker-in-Docker, and Kysely."
   />
   <Card
     title="AI & Evaluator Engineering"
@@ -91,6 +109,16 @@ Select your team perspective using the top navigation switcher or the links belo
 
 <Cards>
   <Card
+    title="Knowledge Base Governance & PR Workflow"
+    href="/docs/operations/knowledge-base-governance"
+    description="Ownership matrix for Tino, Vishal V, and Prithivi, PR contribution guidelines, review SLA, and version release lifecycle."
+  />
+  <Card
+    title="Version Release History (v0.3.0)"
+    href="/docs/operations/release-history"
+    description="Official milestone changelogs, architecture evolution records, and sprint-by-sprint release notes."
+  />
+  <Card
     title="Product Knowledge Base"
     href="/docs/knowledge-base/00-start-here"
     description="The complete 20-chapter product and business specification: user journeys, AI controls, workspaces, and lifecycles."
@@ -101,34 +129,34 @@ Select your team perspective using the top navigation switcher or the links belo
     description="Official 150-requirement BRD: full acceptance criteria, 39-step user flow, state models, edge cases, and traceability."
   />
   <Card
-    title="System Architecture"
-    href="/docs/architecture/system-architecture"
-    description="Complete interactive topology: modular monolith, container orchestrator, AI proxy gateway, and Redis BullMQ queues."
+    title="Task Template Taxonomy"
+    href="/docs/architecture/template-taxonomy"
+    description="Blueprint matrix across 5 technical sectors and 6 commercial industries with environment slot definitions."
   />
   <Card
-    title="Frameworks & Versions"
-    href="/docs/architecture/frameworks-and-versions"
-    description="Frozen versions matrix: Node 24, pnpm 9, Next.js, Fastify, Kysely, PostgreSQL 16, Sysbox, and architectural rationale."
+    title="Candidate Workspace Autosave"
+    href="/docs/architecture/candidate-autosave"
+    description="Continuous 30-second RPO persistence, Git diff tracking, fullscreen exit anti-cheat, and state restoration."
   />
   <Card
-    title="Database Architecture & ERD"
-    href="/docs/database/db-visualization"
-    description="Interactive Mermaid ER diagram of all tables, foreign keys, indexes, and Row-Level Security (RLS) policies."
+    title="AI Proxy Gateway (:4000)"
+    href="/docs/architecture/ai-proxy-gateway"
+    description="Zero-knowledge AI proxy gateway, OpenRouter relay, sliding-window rate limiting, and spend cap policies."
   />
   <Card
-    title="REST API Specifications"
-    href="/docs/api/overview"
-    description="RESTful OpenAPI 3.1 contracts, HttpOnly session cookies, workspace tokens, RFC 7807 problem details, and webhooks."
+    title="Reviewer Agent Pipeline"
+    href="/docs/architecture/reviewer-pipeline"
+    description="Independent evaluator personas (Archie, Logic, Synergy, Shield, Omni) and mandatory evidence citation schemas."
   />
   <Card
-    title="Production Release Runbook"
-    href="/docs/production/release-runbook"
-    description="Zero-downtime expand-and-contract migrations, canary rollouts, smoke verification, and rollback runbooks."
+    title="AWS Staging Infrastructure"
+    href="/docs/architecture/aws-staging-infrastructure"
+    description="Terraform-managed ECS Fargate cluster, ALB routing, Amazon RDS Multi-AZ, and ElastiCache Redis topology."
   />
   <Card
-    title="Security & Isolation Architecture"
-    href="/docs/security/workspace-isolation"
-    description="Sysbox container isolation, unprivileged Docker daemon, seccomp/AppArmor profiles, and egress firewall rules."
+    title="Autonomous Testing SOPs"
+    href="/docs/operations/qa-sop"
+    description="Developer Autonomous Testing (DAT) and QA Autonomous Testing (QAT) decoupled testing workflows."
   />
 </Cards>
 
@@ -139,6 +167,6 @@ Select your team perspective using the top navigation switcher or the links belo
 > [!IMPORTANT]
 > HelloSmart operates under the **AI Developer Life Cycle (AIDLC) Documentation Rule**:
 >
-> Whenever a developer or AI coding agent modifies database schemas (`packages/contracts/db/`), changes API schemas (`packages/contracts/openapi/`), or alters service architecture, the agent **must update these docs in the same PR**.
+> Whenever a developer or AI coding agent modifies database schemas (`packages/contracts/db/`), changes API schemas (`packages/contracts/openapi/`), or alters service architecture, the team lead **must update these docs via PR to `docs-hellosmart`**.
 >
-> Run `pnpm docs:sync-check` to assert that zero documentation drift has occurred.
+> Primary Owner **Tino** reviews and merges all documentation changes, ensuring the Knowledge Base remains the immutable Single Source of Truth.
