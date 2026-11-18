@@ -19,11 +19,11 @@ To ensure documentation remains accurate, comprehensive, and synchronized with a
 
 ```mermaid
 flowchart TD
-    subgraph Leads["Team Lead Domain Owners"]
-        Tino["Tino<br/><b>Primary KB Owner & System Architect</b><br/>Platform, Infrastructure, Contracts, Releases"]
+    subgraph Leads["Team Lead Domain Owners & QA Team"]
+        Tino["Tino<br/><b>Primary KB Owner, System Architect & QA Automation Lead</b><br/>Platform, Infrastructure, QA Architecture, Contracts, Releases"]
         Vishal["Vishal V<br/><b>Lead Backend Engineer</b><br/>Core API, Database, Tenancy, Billing"]
         Prithivi["Prithivi<br/><b>AI Systems & Proxy Lead</b><br/>AI Proxy, Evaluator Pipeline, Keys"]
-        QA["Thiganth & Raja<br/><b>QA Automation Leads</b><br/>DAT/QAT SOPs, Test Matrices, Regression"]
+        QA["Thiganth & Raja<br/><b>QA Team</b><br/>DAT/QAT Test Execution, Regression, SOP Verification"]
     end
 
     subgraph Repo["Centralized Knowledge Base (docs-hellosmart)"]
@@ -43,12 +43,12 @@ flowchart TD
 
 ### Domain Ownership Roster
 
-| Team Lead | Primary Engineering Role | KB Domain Ownership | Monorepo Codebase Paths | KB Documentation Paths |
+| Member | Primary Engineering Role | KB Domain Ownership | Monorepo Codebase Paths | KB Documentation Paths |
 |---|---|---|---|---|
-| **Tino** | **System Architect & Platform Lead** *(KB Primary Owner)* | • Repository health, structure, and standards<br/>• Overall PR review and merge authority<br/>• Versioning and official KB releases<br/>• System architecture & ADRs<br/>• AWS Staging & Prod infrastructure<br/>• Shared contracts & cross-cutting schemas | `packages/contracts`<br/>`infra/terraform/*`<br/>`.github/*` | `/docs/architecture/*`<br/>`/docs/adr/*`<br/>`/docs/operations/knowledge-base-governance`<br/>`/docs/operations/release-history` |
+| **Tino** | **System Architect, Platform Lead & QA Automation Lead** *(KB Primary Owner)* | • Repository health, structure, and standards<br/>• Overall PR review and merge authority<br/>• QA automation architecture, SOPs & test matrices<br/>• Versioning and official KB releases<br/>• System architecture & ADRs<br/>• AWS Staging & Prod infrastructure<br/>• Shared contracts & cross-cutting schemas | `packages/contracts`<br/>`infra/terraform/*`<br/>`tests/*`<br/>`.github/*` | `/docs/architecture/*`<br/>`/docs/adr/*`<br/>`/docs/operations/knowledge-base-governance`<br/>`/docs/operations/release-history`<br/>`/docs/operations/qa-sop` |
 | **Vishal V** | **Lead Backend Engineer** | • Core Fastify REST API (`apps/api`)<br/>• PostgreSQL 16 schema & Kysely queries<br/>• Multi-tenancy (BR-01) & RLS policies<br/>• Industry/Sector Task Template blueprints<br/>• Candidate onboarding & timing engine<br/>• Razorpay billing, quotes & invoices | `apps/api/*`<br/>`packages/database/*` | `/docs/database/*`<br/>`/docs/api/*`<br/>`/docs/architecture/template-taxonomy`<br/>`/docs/knowledge-base/13-quotes-payments-and-billing` |
 | **Prithivi** | **AI Systems & Proxy Lead** | • Standalone AI Proxy Gateway (:4000)<br/>• Sliding-window rate limits & token caps (BR-15)<br/>• Model allowlists & AI OFF egress rules (BR-14)<br/>• Multi-Agent Reviewer pipeline (`services/reviewer`)<br/>• Evaluator personas (Archie, Logic, Synergy, Shield, Omni)<br/>• Mandatory evidence citation protocols (BR-19) | `services/ai-proxy/*`<br/>`services/reviewer/*` | `/docs/architecture/ai-proxy-gateway`<br/>`/docs/architecture/reviewer-pipeline`<br/>`/docs/roles/ai`<br/>`/docs/knowledge-base/08-ai-controls`<br/>`/docs/knowledge-base/09-reviewer-agents-and-scoring` |
-| **Thiganth & Raja** | **QA Automation Leads** | • Autonomous Testing Protocols (DAT & QAT)<br/>• Zero-wait Prism mock test harnesses<br/>• Multi-tenant RLS isolation test suites<br/>• End-to-end regression matrices | `tests/*`<br/>`apps/api/test/*` | `/docs/operations/qa-sop`<br/>`/docs/roles/qa` |
+| **Thiganth & Raja** | **QA Team** *(Under Tino's QA Leadership)* | • Autonomous Testing Protocols (DAT & QAT) execution<br/>• Zero-wait Prism mock test harnesses<br/>• Multi-tenant RLS isolation test suites<br/>• End-to-end regression execution | `tests/*`<br/>`apps/api/test/*` | `/docs/operations/qa-sop`<br/>`/docs/roles/qa` |
 
 ---
 
@@ -66,7 +66,7 @@ As the primary repository owner, **Tino** is responsible for:
    - Enforcing clear explanations, exact code references, and proper role tagging (`<RoleBadge />`).
 3. **Coordinating Cross-Lead Documentation**:
    - Identifying documentation gaps resulting from new features or sprint epics.
-   - Requesting timely documentation contributions from Vishal V, Prithivi, and QA leads.
+   - Requesting timely documentation contributions from Vishal V, Prithivi, and the QA team.
 4. **Publishing Versioned Releases**:
    - Tracking implementation milestones and publishing official versioned releases (e.g., `v0.1.0`, `v0.2.0`, `v0.3.0`).
    - Updating `CHANGELOG.md` and `/docs/operations/release-history` with every release.
@@ -74,9 +74,9 @@ As the primary repository owner, **Tino** is responsible for:
 
 ---
 
-## 3. Responsibilities of Team Leads (Vishal V, Prithivi, QA)
+## 3. Responsibilities of Team Leads & QA Team (Vishal V, Prithivi, QA Team)
 
-Every Team Lead is an active co-author of the Knowledge Base with the following responsibilities:
+Every Team Lead and QA Team member is an active contributor to the Knowledge Base with the following responsibilities:
 
 1. **Document Implementation Decisions**:
    - Author architectural explanations, schema changes, and service workflows whenever new code is merged.

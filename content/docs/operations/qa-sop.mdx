@@ -39,7 +39,7 @@ flowchart LR
 
 | Attribute | Track 1: DAT (Developer Autonomous Testing) | Track 2: QAT (QA Autonomous Testing) |
 |---|---|---|
-| **Primary Owner** | SDE Authors (Vishal, SDE-1, SDE-2) | QA Leads (Thiganth, Raja) |
+| **Primary Owner** | SDE Authors (Vishal, SDE-1, SDE-2) | QA Automation Lead (Tino) & QA Team (Thiganth, Raja) |
 | **Execution Trigger** | Local feature development & pre-PR verification | Nightly regression runs, staging deployments, release candidate gates |
 | **Execution Speed** | Fast (under 60 seconds total suite) | Deep (under 15 minutes comprehensive suite) |
 | **Dependency Model** | Zero external dependencies; uses Prism mock server & in-memory databases | Live staging environment or Docker Compose with real PostgreSQL & Redis |
@@ -105,6 +105,6 @@ Simulate candidate sessions:
 
 ## 4. Test Reporting & Gatekeeping
 
-QA leads publish test run results directly into the release runbook (`/docs/production/release-runbook`):
+The QA team publishes test run results directly into the release runbook (`/docs/production/release-runbook`) under QA Automation Lead (Tino) oversight:
 - All test suites must maintain **100% pass rate** on release branches.
 - Any regression in multi-tenant isolation (BR-01) is treated as a **P0 security blocker** halting deployments.

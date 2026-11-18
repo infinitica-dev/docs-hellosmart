@@ -1,7 +1,7 @@
 ## HelloSmart Knowledge Base Pull Request
 
 ### 1. Document Scope & Lead Contributor
-- **Contributing Lead**: [ ] Vishal V (Backend) | [ ] Prithivi (AI Systems) | [ ] Tino (Platform/Arch) | [ ] QA Team (Thiganth/Raja) | [ ] Other
+- **Contributing Lead / Author**: [ ] Tino (Platform/Arch & QA Automation Lead) | [ ] Vishal V (Backend) | [ ] Prithivi (AI Systems) | [ ] QA Team (Thiganth/Raja) | [ ] Other
 - **Target Documentation Area**:
   - [ ] Architecture (`/docs/architecture/*`)
   - [ ] Database & Schemas (`/docs/database/*`)

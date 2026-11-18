@@ -10,10 +10,10 @@ This repository is the **Single Source of Truth (SSOT)** for HelloSmart.ai. To m
 
 | Area | Lead Owner | Focus Areas |
 |---|---|---|
-| **Primary Coordination & Releases** | **Tino** (`@brittytino`) | Platform architecture, AWS infrastructure, shared contracts, governance, final PR approval, and versioned releases. |
+| **Primary Architecture, QA & Releases** | **Tino** (`@brittytino`) | Platform architecture, QA automation direction, AWS infrastructure, shared contracts, governance, final PR approval, and versioned releases. |
 | **Core Backend & Database** | **Vishal V** | Fastify REST API, PostgreSQL 16 schema, Kysely queries, multi-tenancy (BR-01), Task Template blueprints, Razorpay billing. |
 | **AI Systems & Proxy** | **Prithivi** | Standalone AI Proxy Gateway (:4000), token spend caps, BYOK vault, Multi-Agent Reviewer pipeline (Archie, Logic, Synergy, Shield, Omni), evidence protocols (BR-19). |
-| **QA Automation & Testing** | **Thiganth & Raja** | DAT/QAT testing protocols, zero-wait mock harnesses, cross-tenant isolation suites, test matrices. |
+| **QA Team & Test Execution** | **Thiganth & Raja** *(QA Team, led by Tino)* | DAT/QAT testing execution, zero-wait mock harnesses, cross-tenant isolation suites, test matrices. |
 
 ---
 

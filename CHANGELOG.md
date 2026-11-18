@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Collaborative Governance Framework**:
   - Centralized Knowledge Base governance specification (`/docs/operations/knowledge-base-governance`).
-  - Contributor guidelines (`CONTRIBUTING.md`) defining domain ownership for Vishal V (Backend), Prithivi (AI Systems), and QA Leads (Thiganth & Raja), with Tino as Primary Owner.
+  - Contributor guidelines (`CONTRIBUTING.md`) defining domain ownership for Vishal V (Backend) and Prithivi (AI Systems), with Tino as Primary Owner & QA Automation Lead, and Thiganth & Raja as QA Team.
   - Pull Request template (`.github/pull_request_template.md`) enforcing invariant compliance, implementation links, and review sign-offs.
   - Versioned release history document (`/docs/operations/release-history`).
 - **Task Template Sector Taxonomy**:
