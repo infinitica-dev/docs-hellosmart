@@ -35,7 +35,7 @@ export const TEAM_ROLES: Record<TeamRole, RoleConfig> = {
     id: 'sde',
     name: 'Product Engineering',
     badge: 'Product Eng',
-    description: 'Product Engineering team — Vishal V (Lead), Vishal Bharath (SDE-I), Satheeshwaran (SDE-I), Prasad (SDE-II)',
+    description: 'Product Engineering team — Vishal V (Lead), Vishal Bharath (SDE-I), Satheeshwaran (SDE-I), Prasad (SDE-II), Yeshwanth',
     color: '#3b82f6',
     allowedPaths: [
       '/docs/roles/sde',

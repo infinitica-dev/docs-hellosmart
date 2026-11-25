@@ -29,6 +29,7 @@ export function verifyPasswordServer(password: string): AuthResult | null {
     process.env.VISHALBHARATH_PASSWORD || 'Bh@rath_Cr@ft#26',
     process.env.SATHEESH_PASSWORD      || 'S@th3sh_Bu1ld!26',
     process.env.PRASAD_PASSWORD        || 'Pr@sad_St@ck#26',
+    process.env.YESHWANTH_PASSWORD     || 'Y3shw@nth_C0de!26',
     // ai — AI & Data Engineering
     process.env.PRITHIV_PASSWORD || 'Pr1th!v_N3ur@l$26',
     process.env.SANJITH_PASSWORD || 'S@nj1th_M0del!26',
