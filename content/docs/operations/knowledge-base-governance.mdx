@@ -19,26 +19,31 @@ To ensure documentation remains accurate, comprehensive, and synchronized with a
 
 ```mermaid
 flowchart TD
-    subgraph Leads["Team Lead Domain Owners & QA Team"]
+    subgraph Leads["Core Team Leads & QA Team"]
         Tino["Tino<br/><b>Primary KB Owner, System Architect & QA Automation Lead</b><br/>Platform, Infrastructure, QA Architecture, Contracts, Releases"]
-        Vishal["Vishal V<br/><b>Lead Backend Engineer</b><br/>Core API, Database, Tenancy, Billing"]
+        Vishal["Vishal V<br/><b>Lead Backend & Product Engineering</b><br/>Core API, Database, Tenancy, Billing, Portals"]
         Prithivi["Prithivi<br/><b>AI Systems & Proxy Lead</b><br/>AI Proxy, Evaluator Pipeline, Keys"]
+        Allen["Joshua Allen<br/><b>Product Management & Delivery</b><br/>Sprint Timelines, Commercials, Vendor Management"]
         QA["Thiganth & Raja<br/><b>QA Team</b><br/>DAT/QAT Test Execution, Regression, SOP Verification"]
+        Exora["Exora Team (5 Engineers)<br/><b>External Engineering Partner</b><br/>Product, AI, QA, DevOps Deliverables"]
     end
 
     subgraph Repo["Centralized Knowledge Base (docs-hellosmart)"]
         Gov["Architecture & System Specs"]
         Schema["Database & API Contracts"]
         Ops["Operations, SOPs & Release History"]
+        Infra["Cloud Infrastructure & DevOps"]
     end
 
     Vishal -- "PR: Core Backend & DB" --> PRReview{"Tino PR Review & Sync Check"}
     Prithivi -- "PR: AI Proxy & Evaluators" --> PRReview
     QA -- "PR: QA Protocols & Matrices" --> PRReview
+    Exora -- "PR: External Deliverables" --> PRReview
+    Allen -- "Delivery & Release Updates" --> PRReview
     Tino -- "Platform Specs & Governance" --> PRReview
 
     PRReview -- "Approve & Merge" --> Repo
-    Repo -- "Official Versioned Release" --> Pub["Published KB (v0.3.0)"]
+    Repo -- "Official Versioned Release" --> Pub["Published KB (v0.4.0)"]
 ```
 
 ### Domain Ownership Roster
@@ -46,9 +51,11 @@ flowchart TD
 | Member | Primary Engineering Role | KB Domain Ownership | Monorepo Codebase Paths | KB Documentation Paths |
 |---|---|---|---|---|
 | **Tino** | **System Architect, Platform Lead & QA Automation Lead** *(KB Primary Owner)* | • Repository health, structure, and standards<br/>• Overall PR review and merge authority<br/>• QA automation architecture, SOPs & test matrices<br/>• Versioning and official KB releases<br/>• System architecture & ADRs<br/>• AWS Staging & Prod infrastructure<br/>• Shared contracts & cross-cutting schemas | `packages/contracts`<br/>`infra/terraform/*`<br/>`tests/*`<br/>`.github/*` | `/docs/architecture/*`<br/>`/docs/adr/*`<br/>`/docs/operations/knowledge-base-governance`<br/>`/docs/operations/release-history`<br/>`/docs/operations/qa-sop` |
-| **Vishal V** | **Lead Backend Engineer** | • Core Fastify REST API (`apps/api`)<br/>• PostgreSQL 16 schema & Kysely queries<br/>• Multi-tenancy (BR-01) & RLS policies<br/>• Industry/Sector Task Template blueprints<br/>• Candidate onboarding & timing engine<br/>• Razorpay billing, quotes & invoices | `apps/api/*`<br/>`packages/database/*` | `/docs/database/*`<br/>`/docs/api/*`<br/>`/docs/architecture/template-taxonomy`<br/>`/docs/knowledge-base/13-quotes-payments-and-billing` |
+| **Vishal V** | **Lead Backend & Product Engineering** | • Core Fastify REST API (`apps/api`)<br/>• PostgreSQL 16 schema & Kysely queries<br/>• Multi-tenancy (BR-01) & RLS policies<br/>• Industry/Sector Task Template blueprints<br/>• Candidate onboarding & timing engine<br/>• Razorpay billing, quotes & invoices | `apps/api/*`<br/>`packages/database/*` | `/docs/database/*`<br/>`/docs/api/*`<br/>`/docs/architecture/template-taxonomy`<br/>`/docs/knowledge-base/13-quotes-payments-and-billing` |
 | **Prithivi** | **AI Systems & Proxy Lead** | • Standalone AI Proxy Gateway (:4000)<br/>• Sliding-window rate limits & token caps (BR-15)<br/>• Model allowlists & AI OFF egress rules (BR-14)<br/>• Multi-Agent Reviewer pipeline (`services/reviewer`)<br/>• Evaluator personas (Archie, Logic, Synergy, Shield, Omni)<br/>• Mandatory evidence citation protocols (BR-19) | `services/ai-proxy/*`<br/>`services/reviewer/*` | `/docs/architecture/ai-proxy-gateway`<br/>`/docs/architecture/reviewer-pipeline`<br/>`/docs/roles/ai`<br/>`/docs/knowledge-base/08-ai-controls`<br/>`/docs/knowledge-base/09-reviewer-agents-and-scoring` |
+| **Joshua Allen** | **Product Management & Delivery Lead** | • Sprint planning, roadmaps & deliverables<br/>• Commercials, quotes, payment terms & invoices<br/>• Vendor management (Meyi Cloud, Exora)<br/>• Working hours & client milestone tracking | `zoho/*`<br/>`tasks/*` | `/docs/planning/*`<br/>`/docs/operations/release-history` |
 | **Thiganth & Raja** | **QA Team** *(Under Tino's QA Leadership)* | • Autonomous Testing Protocols (DAT & QAT) execution<br/>• Zero-wait Prism mock test harnesses<br/>• Multi-tenant RLS isolation test suites<br/>• End-to-end regression execution | `tests/*`<br/>`apps/api/test/*` | `/docs/operations/qa-sop`<br/>`/docs/roles/qa` |
+| **Exora Team** | **External Engineering Partner** *(5 Engineers)* | • Product Engineering (Dashboards, Billing, UI/UX)<br/>• AI pipeline integration<br/>• E2E QA automation & load testing<br/>• CI/CD and DevOps pipelines | Monorepo feature branches | `/docs/operations/knowledge-base-governance#external-partner-scope` |
 
 ---
 
@@ -194,7 +201,44 @@ Whenever a sprint milestone is reached or significant architectural changes are 
 3. Update `package.json` version string.
 4. Tag the commit:
    ```bash
-   git tag -a v0.3.0 -m "Release v0.3.0: Sprint 2 Architecture & Governance"
-   git push origin v0.3.0
+   git tag -a v0.4.0 -m "Release v0.4.0: Cloud Infrastructure Simplification & External Partner Integration"
+   git push origin v0.4.0
    ```
 5. Notify the engineering team in the communication channel with the release changelog summary.
+
+---
+
+## 6. External Engineering Partner (Exora) Deliverables
+
+HelloSmart engages an external engineering partner (**Exora**, 5 engineers) across Product Engineering, AI Engineering, QA Automation, and DevOps. All technical deliverables produced by Exora are submitted via Pull Request and reviewed under Tino and the domain leads:
+
+### Product & AI Deliverables (Reviewed by Vishal & Prithivi)
+1. **Complete Hiring Flow & UI/UX**: Candidate assessment journey, company dashboard polish, and design system integration.
+2. **Sales & Super Admin Analytics**: KPI dashboards tracking platform utilization, active machine count, concurrent assessments, candidate demographics, and hiring trends.
+3. **Billing & Subscriptions**: Plan management, payment links, Razorpay integration, automated invoice generation, and subscription lifecycles.
+4. **Feature Flags**: Third-party feature flag SDK integration for tenant-level entitlement gating.
+5. **AI Pipeline Integration**: Connecting frontend and candidate sessions to the standalone AI Proxy gateway.
+
+### QA & DevOps Deliverables (Reviewed by Tino)
+1. **E2E Automation Suite**: Playwright regression suite covering the complete candidate assessment journey in headless CI.
+2. **Concurrency & Load Testing**: k6/Artillery load testing scripts benchmarking 25-50 simultaneous candidate workspace launches.
+3. **Workspace Pre-Baked AMI Pipeline**: Automated Packer image factory packaging OpenVSCode, Node.js, Python, and Docker CLI to ensure sub-45s boot times.
+4. **Orphan EC2 Watchdog**: EventBridge and Lambda watchdogs terminating idle or abandoned candidate EC2 instances after 15 minutes of inactivity.
+5. **Observability & Cost Budgeting**: Centralized CloudWatch dashboards, error tracing, and automated AWS billing spike alerts.
+
+---
+
+## 7. Cloud Infrastructure & Cost Optimization Strategy
+
+To ensure high reliability during candidate testing while preventing idle AWS infrastructure costs, HelloSmart adopts a lean 2-environment topology managed via Infrastructure as Code (Terraform):
+
+1. **Simplified Environments**:
+   - **No 24/7 Dev Environment**: Developers run and test services locally using Docker Compose and Prism mocks.
+   - **Two Active AWS Environments**: Dedicated **QA (Staging)** and **Production** environments.
+   - **On-Demand Dev EC2**: A single persistent, start/stop EC2 instance available for cloud-specific developer integration testing, stopped outside active testing hours.
+2. **Lean Networking**:
+   - Consolidated from 3 multi-AZ NAT Gateways ($162/mo) down to **1 single NAT Gateway** (or lightweight `fck-nat` instance) for non-production traffic.
+3. **Candidate Workspace Strategy**:
+   - **Option 2 (On-Demand EC2) with Fast-Boot AMI**: Spins up on candidate test launch and terminates upon submission. Boot latency is mitigated via pre-baked AMIs (< 45s launch).
+   - **Option C (Sysbox Container ASG)**: Scale-to-zero container pool reserved as high-density scaling path as assessment volume grows.
+   - **Inactivity Watchdog**: Auto-snapshots candidate workspace to S3 and terminates compute if disconnected or idle for > 15 minutes.

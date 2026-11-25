@@ -15,9 +15,36 @@ This document chronicles the official versioned releases of the **HelloSmart Pro
 
 | Version | Release Date | Milestone Focus | Primary Lead Authors | Status |
 |---|---|---|---|---|
-| **`v0.3.0`** | **November 18, 2026** | **Sprint 2: Architecture & Governance Consolidation** | Tino, Vishal V, Prithivi, QA Team | **Current Published** |
+| **`v0.4.0`** | **November 25, 2026** | **Cloud Infra Optimization, Workspace Strategy & Exora Integration** | Tino, Vishal V, Prithivi, Allen | **Current Published** |
+| **`v0.3.0`** | November 18, 2026 | Sprint 2: Architecture & Governance Consolidation | Tino, Vishal V, Prithivi, QA Team | Archived |
 | **`v0.2.0`** | November 11, 2026 | Sprint 1: Multi-Tenancy, RLS & Sysbox Sandboxing | Tino, Vishal V | Archived |
 | **`v0.1.0`** | October 25, 2026 | Sprint 0: Foundation Product Architecture & BRD | Tino | Archived |
+
+---
+
+## Version 0.4.0 (Cloud & Team Scaling Milestone) — November 25, 2026
+
+**Theme**: Cloud Infrastructure Cost Optimization, Simplified 2-Environment Topology, Candidate Workspace Execution Strategy, External Engineering Partner (Exora) Integration, and Core Team Ownership Matrix.
+
+### 1. Cloud Infrastructure & Cost Optimization
+- **Simplified 2-Environment Topology**: Eliminated the redundant 24/7 AWS Dev environment in favor of **QA (Staging)** and **Production** environments, plus a single on-demand start/stop EC2 instance for developer cloud testing.
+- **Networking Cost Reduction**: Consolidated from 3 multi-AZ NAT Gateways down to a single NAT Gateway (or `fck-nat` instance) for non-production environments, cutting over $100/month in idle networking fees.
+- **API Runtime Architecture**: Evaluated AWS ECS Fargate for core REST APIs and orchestration containers to eliminate static VM management overhead.
+
+### 2. Candidate Workspace Execution Strategy
+- **Option 2 (On-Demand EC2) with Pre-Baked AMI**: Documented the scale-to-zero on-demand EC2 execution model for candidate assessments. Mandated pre-baked AMIs (via Packer) containing OpenVSCode, Node.js, Python, and Docker CLI to drop cold boot latency from 2.5 minutes to under 45 seconds.
+- **Inactivity Watchdog & Auto-Termination**: Architected EventBridge and Lambda watchdogs to terminate abandoned or idle candidate EC2 instances after 15 minutes of inactivity, saving state to S3.
+- **Dynamic Routing**: Defined reverse proxy routing patterns (wildcard subdomain / Traefik) to dynamically connect candidate WebSocket sessions to newly provisioned private EC2 instances.
+
+### 3. External Engineering Partner (Exora) Integration
+- **Exora Deliverable Matrix**: Integrated a 5-member external engineering team with defined deliverables across Product Engineering (hiring flow, admin analytics, billing/plans), AI pipeline integration, E2E QA automation (Playwright), and DevOps CI/CD pipelines.
+- **PR Review & Quality Gates**: Mandated that all Exora contributions follow the central pull request review workflow under Tino and internal domain leads.
+
+### 4. Core Team Internal Ownership Matrix
+- **Tino Britty**: Platform Architecture, DevOps & Cloud Infrastructure oversight, and QA Automation Lead (E2E quality gates, tenancy RLS testing, DAT/QAT governance).
+- **Vishal V**: Product Engineering Lead (Portals, hiring workflows, billing, subscription logic).
+- **Prithivi**: AI Systems & Proxy Lead (AI proxy gateway, evaluator personas, rubric grading).
+- **Joshua Allen**: Product Management & Delivery Lead (Sprint planning, commercial agreements, invoices, vendor coordination).
 
 ---
 
